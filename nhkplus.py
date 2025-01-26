@@ -11,6 +11,17 @@ import sys
 from datetime import datetime, timedelta
 import os
 
+# デフォルトのタイムアウト時間
+DEFAULT_TIMEOUT = int(os.getenv("WEBDRIVER_TIMEOUT", 10))  # タイムアウト時間を環境変数から取得、デフォルトは10秒
+
+# ページのロード完了を待つためのカスタム expected_condition
+class CustomExpectedConditions:
+    @staticmethod
+    def page_is_ready():
+        """ページが完全にロードされたことを確認する"""
+        return lambda driver: driver.execute_script("return document.readyState") == "complete"
+
+
 # 取得対象の番組リスト (番組名, リストページのURL) を改行区切りで定義
 # -> BS世界のドキュメンタリー(火 or 水)は日付記載が無いため手動
 #       https://www.nhk.jp/p/wdoc/ts/88Z7X45XZY/list/
@@ -19,16 +30,16 @@ PROGRAMS_CONFIG = """
 キャッチ!世界のトップニュース,https://www.nhk.jp/p/catchsekai/ts/KQ2GPZPJWM/list/
 みみより!解説,https://www.nhk.jp/p/ts/X67KZLM3P6/list/
 視点・論点,https://www.nhk.jp/p/ts/Y5P47Z7YVW/list/
+所さん!事件ですよ,https://www.nhk.jp/p/jikentokoro/ts/G69KQR33PG/list/
 クローズアップ現代,https://www.nhk.jp/p/gendai/ts/R7Y6NGLJ6G/list/
+新プロジェクトX,https://www.nhk.jp/p/ts/P1124VMJ6R/list/
+サタデーウオッチ9,https://www.nhk.jp/p/ts/7K78K8ZNJV/list/
+NHKスペシャル,https://www.nhk.jp/p/special/ts/2NY2QQLPM3/list/
 ドキュメント72時間,https://www.nhk.jp/p/72hours/ts/W3W8WRN8M3/list/
 映像の世紀バタフライエフェクト,https://www.nhk.jp/p/butterfly/ts/9N81M92LXV/list/
 BSスペシャル,https://www.nhk.jp/p/bssp/ts/6NMMPMNK5K/list/
-時論公論,https://www.nhk.jp/p/ts/4V23PRP3YR/list/
-NHKスペシャル,https://www.nhk.jp/p/special/ts/2NY2QQLPM3/list/
-所さん!事件ですよ,https://www.nhk.jp/p/jikentokoro/ts/G69KQR33PG/list/
-新プロジェクトX,https://www.nhk.jp/p/ts/P1124VMJ6R/list/
-サタデーウオッチ9,https://www.nhk.jp/p/ts/7K78K8ZNJV/list/
 漫画家イエナガの複雑社会を超定義,https://www.nhk.jp/p/ts/1M3MYJGG6G/list/
+時論公論,https://www.nhk.jp/p/ts/4V23PRP3YR/list/
 """
 
 def parse_programs_config(config_str):
@@ -47,21 +58,29 @@ def parse_programs_config(config_str):
 def extract_episode_info(driver, target_date, program_title):
     """リストページから指定された日付のエピソードURLを抽出する"""
     try:
-        print("=" * 100 + f" 検索中 : {program_title}")
-        episodes = WebDriverWait(driver, 10).until(
+        WebDriverWait(driver, DEFAULT_TIMEOUT).until(CustomExpectedConditions.page_is_ready())
+        episodes = WebDriverWait(driver, DEFAULT_TIMEOUT).until(
             EC.presence_of_all_elements_located((By.CLASS_NAME, 'gc-stream-panel-info'))
         )
         for episode in episodes:
             try:
-                date_element = episode.find_element(By.CLASS_NAME, 'gc-stream-panel-info-title-firstbroadcastdate-date')
-                year_element = date_element.find_element(By.CLASS_NAME, 'gc-atom-text-for-date-year')
-                day_element = date_element.find_element(By.CLASS_NAME, 'gc-atom-text-for-date-day')
+                date_element = WebDriverWait(episode, DEFAULT_TIMEOUT).until(
+                    EC.presence_of_element_located((By.CLASS_NAME, 'gc-stream-panel-info-title-firstbroadcastdate-date'))
+                )
+                year_element = WebDriverWait(date_element, DEFAULT_TIMEOUT).until(
+                    EC.presence_of_element_located((By.CLASS_NAME, 'gc-atom-text-for-date-year'))
+                )
+                day_element = WebDriverWait(date_element, DEFAULT_TIMEOUT).until(
+                    EC.presence_of_element_located((By.CLASS_NAME, 'gc-atom-text-for-date-day'))
+                )
                 year_text = year_element.text.strip()
                 day_text = day_element.text.strip()
                 date_text = f"{year_text}{day_text}"
             except:
                 try:
-                    date_element = episode.find_element(By.CLASS_NAME, 'gc-stream-panel-info-title')
+                    date_element = WebDriverWait(episode, DEFAULT_TIMEOUT).until(
+                         EC.presence_of_element_located((By.CLASS_NAME, 'gc-stream-panel-info-title'))
+                     )
                     date_text = date_element.text.strip()
                 except:
                     continue
@@ -94,7 +113,8 @@ def get_formatted_episode_info(driver, program_title, episode_url):
     """エピソードページから番組情報と配信URLを整形して出力する"""
     try:
         driver.get(episode_url)
-        target_element = WebDriverWait(driver, 10).until(
+        WebDriverWait(driver, DEFAULT_TIMEOUT).until(CustomExpectedConditions.page_is_ready())
+        target_element = WebDriverWait(driver, DEFAULT_TIMEOUT).until(
             EC.presence_of_element_located((By.CLASS_NAME, 'title'))
         )
         episode_title = target_element.text.strip()
@@ -107,7 +127,7 @@ def get_formatted_episode_info(driver, program_title, episode_url):
             formatted_output += f"{final_url}\n"
             return formatted_output
 
-        eyecatch_div = WebDriverWait(driver, 10).until(
+        eyecatch_div = WebDriverWait(driver, DEFAULT_TIMEOUT).until(
             EC.presence_of_element_located((By.CLASS_NAME, 'gc-images.is-medium.eyecatch'))
         )
         a_tag = eyecatch_div.find_element(By.TAG_NAME, 'a')
@@ -115,8 +135,8 @@ def get_formatted_episode_info(driver, program_title, episode_url):
         if a_tag and 'href' in a_tag.get_attribute('outerHTML'):
             image_link = a_tag.get_attribute('href')
             driver.get(image_link)
-
-            time_element = WebDriverWait(driver, 10).until(
+            WebDriverWait(driver, DEFAULT_TIMEOUT).until(CustomExpectedConditions.page_is_ready())
+            time_element = WebDriverWait(driver, DEFAULT_TIMEOUT).until(
                 EC.presence_of_element_located((By.CLASS_NAME, "stream_panel--info--meta"))
             )
             time_text = time_element.text.strip()
@@ -142,7 +162,7 @@ def get_formatted_episode_info(driver, program_title, episode_url):
         print(f"エラーが発生しました: {e} - {program_title}, {episode_url}")
         return None
 
-def get_nhk_info_formatted(program_title, list_url, target_date):
+def get_nhk_info_formatted(program_title, list_url, target_date, start_time):
     """番組リストページから、指定された日付の番組情報を取得する"""
     # Seleniumの設定
     options = Options()
@@ -153,11 +173,19 @@ def get_nhk_info_formatted(program_title, list_url, target_date):
 
     driver = webdriver.Chrome(options=options)
     try:
+        current_time = time.time()
+        elapsed_time = current_time - start_time
+        print("=" * 100 + f" 時間：{elapsed_time:.0f}秒、検索中 : {program_title}")
         driver.get(list_url)
 
         episode_url = extract_episode_info(driver, target_date, program_title)
         if episode_url:
-            return get_formatted_episode_info(driver, program_title, episode_url)
+            formatted_output = get_formatted_episode_info(driver, program_title, episode_url)
+            if formatted_output:
+                return formatted_output
+            else:
+                print(f"{program_title}の番組詳細の取得に失敗しました - {list_url}")
+                return None
         else:
             print(f"{program_title}が見つかりませんでした - {list_url}")
             return None
@@ -189,11 +217,13 @@ if __name__ == "__main__":
     os.makedirs(output_dir, exist_ok=True)
 
     output_file_path = os.path.join(output_dir, f"{target_date}_nhk.txt")
+    start_time = time.time()  # 全処理の開始時間
 
     with open(output_file_path, "w", encoding="utf-8") as outfile:
         for program_title, list_url in programs.items():
-            formatted_info = get_nhk_info_formatted(program_title, list_url, target_date)
+            formatted_info = get_nhk_info_formatted(program_title, list_url, target_date, start_time)
             if formatted_info:
                 outfile.write(formatted_info)
-
-    print(f"結果を {output_file_path} に出力しました。")
+    end_time = time.time()  # 全処理の終了時間
+    elapsed_time = end_time - start_time
+    print(f"結果を {output_file_path} に出力しました。（時間：{elapsed_time:.0f}秒）")
