@@ -218,10 +218,6 @@ def _convert_to_24h(ampm, time_str):
         hour = 0
     return f"{hour:02}:{minute:02}"
 
-def fetch_nhk_program_info(args):
-    program_title, list_url, target_date, start_time = args
-    return get_nhk_info_formatted(program_title, list_url, target_date, start_time)
-
 # テレビ東京スクレイピング関数群
 def parse_tvtokyo_programs_config():
     programs = {}
@@ -273,8 +269,8 @@ def extract_tvtokyo_episode_urls(driver: webdriver.Chrome, target_url: str, form
                     link = episode.find_element(By.CSS_SELECTOR, 'a[href*="post_"]').get_attribute("href")
                     urls.append(link)
                 elif "昨日" in date_text and formatted_yesterday == formatted_date:
-                     link = episode.find_element(By.CSS_SELECTOR, 'a[href*="post_"]').get_attribute("href")
-                     urls.append(link)
+                    link = episode.find_element(By.CSS_SELECTOR, 'a[href*="post_"]').get_attribute("href")
+                    urls.append(link)
                 elif date_text == formatted_date:
                     link = episode.find_element(By.CSS_SELECTOR, 'a[href*="post_"]').get_attribute("href")
                     urls.append(link)
@@ -298,28 +294,76 @@ def fetch_tvtokyo_episode_details(driver: webdriver.Chrome, episode_url: str, pr
         logging.error(f"エピソード詳細取得エラー: {e} - {program_name}, {episode_url}")
         return None, None
 
+
+# def fetch_tvtokyo_program_details(program_name, config, target_date, start_time):
+#     driver = create_driver()
+#     formatted_date = format_date(target_date)
+#     output = []
+#     program_start_time = time.time()
+
+#     try:
+#         if is_skip_day(program_name, target_date):
+#             logging.info(f"{program_name} はスキップされました")
+#             return None
+
+#         weekday = datetime.strptime(target_date, '%Y%m%d').weekday()
+#         program_time = format_program_time(program_name, weekday, config["time"])
+
+#         current_time = time.time()
+#         elapsed_time = current_time - start_time
+#         logging.info(f"検索開始: {program_name} (経過時間: {elapsed_time:.0f}秒)")
+
+#         list_url = config["url"]  # リストURLを取得
+#         episode_urls = extract_tvtokyo_episode_urls(driver, list_url, formatted_date, program_name)
+#         if not episode_urls:
+#             # ログメッセージに番組名とURLを追加
+#             logging.warning(f"{program_name} のエピソードが見つかりませんでした - {list_url}")
+#             return None
+
+#         episode_details = [
+#             fetch_tvtokyo_episode_details(driver, url, program_name) for url in episode_urls
+#         ]
+#         titles = "\n".join(f"・{title}" for title, _ in episode_details if title)
+#         urls = "\n".join(url for _, url in episode_details if url)
+
+#         formatted_output = f"●{program_name}{program_time}\n{titles}\n{urls}\n"
+#         logging.info(f"{program_name} の詳細情報を取得しました")
+#         return formatted_output
+
+#     except Exception as e:
+#         logging.error(f"番組情報取得中にエラー: {e} - {program_name}")
+#         return None
+
+#     finally:
+#         driver.quit()
+#         program_end_time = time.time()
+#         program_elapsed_time = program_end_time - program_start_time
+#         logging.info(f"{program_name} の処理時間: {program_elapsed_time:.0f}秒")
+
+
 def fetch_tvtokyo_program_details(program_name, config, target_date, start_time):
     driver = create_driver()
     formatted_date = format_date(target_date)
-    output = []
-    program_start_time = time.time()
+    list_url = config["url"]  # URL取得を前に移動
 
     try:
         if is_skip_day(program_name, target_date):
             logging.info(f"{program_name} はスキップされました")
             return None
 
-        weekday = datetime.strptime(target_date, '%Y%m%d').weekday()
-        program_time = format_program_time(program_name, weekday, config["time"])
-
+        # 経過時間計算（NHKと同様の形式で検索開始時に表示）
         current_time = time.time()
         elapsed_time = current_time - start_time
         logging.info(f"検索開始: {program_name} (経過時間: {elapsed_time:.0f}秒)")
 
-        episode_urls = extract_tvtokyo_episode_urls(driver, config["url"], formatted_date, program_name)
+        weekday = datetime.strptime(target_date, '%Y%m%d').weekday()
+        program_time = format_program_time(program_name, weekday, config["time"])
+
+        episode_urls = extract_tvtokyo_episode_urls(driver, list_url, formatted_date, program_name)
         if not episode_urls:
-             logging.warning(f"{program_name} のエピソードが見つかりませんでした")
-             return None
+            # NHKと同様の警告メッセージに変更
+            logging.warning(f"{program_name}が見つかりませんでした - {list_url}")
+            return None
 
         episode_details = [
             fetch_tvtokyo_episode_details(driver, url, program_name) for url in episode_urls
@@ -327,23 +371,39 @@ def fetch_tvtokyo_program_details(program_name, config, target_date, start_time)
         titles = "\n".join(f"・{title}" for title, _ in episode_details if title)
         urls = "\n".join(url for _, url in episode_details if url)
 
-        formatted_output = f"●{program_name}{program_time}\n{titles}\n{urls}"
+        formatted_output = f"●{program_name}{program_time}\n{titles}\n{urls}\n"
         logging.info(f"{program_name} の詳細情報を取得しました")
         return formatted_output
 
     except Exception as e:
-       logging.error(f"番組情報取得中にエラー: {e} - {program_name}")
-       return None
+        logging.error(f"番組情報取得中にエラー: {e} - {program_name}")
+        return None
 
     finally:
         driver.quit()
-        program_end_time = time.time()
-        program_elapsed_time = program_end_time - program_start_time
-        logging.info(f"{program_name} の処理時間: {program_elapsed_time:.0f}秒")
+        # 処理時間のログ出力を削除（NHKと統一するため）
+
+
+def fetch_program_info(args):
+    """並列処理用のラッパー関数"""
+    task_type, *rest = args
+    if task_type == 'nhk':
+        return fetch_nhk_program_info(rest)
+    elif task_type == 'tvtokyo':
+        return fetch_tvtokyo_program_info(rest)
+    else:
+        return None
+
+
+def fetch_nhk_program_info(args):
+    program_title, list_url, target_date, start_time = args
+    return get_nhk_info_formatted(program_title, list_url, target_date, start_time)
+
 
 def fetch_tvtokyo_program_info(args):
     program_name, config, target_date, start_time = args
     return fetch_tvtokyo_program_details(program_name, config, target_date, start_time)
+
 
 def create_driver() -> webdriver.Chrome:
     options = Options()
@@ -353,6 +413,20 @@ def create_driver() -> webdriver.Chrome:
     options.add_argument("--disable-dev-shm-usage")
     return webdriver.Chrome(options=options)
 
+def extract_time_from_block(block):
+    """番組ブロックから放送時間を抽出するヘルパー関数"""
+    first_line = block.split('\n')[0]  # ブロックの最初の行を取得
+    time_match = re.search(r'（(NHK|テレ東) (\d{2}:\d{2})', first_line)
+    if time_match:
+        broadcaster, time_str = time_match.groups()
+        hour, minute = map(int, time_str.split(':'))
+        return hour, minute
+    return 24, 0  # 時間が抽出できない場合は最後にソート
+
+def sort_blocks_by_time(blocks):
+    """番組ブロックを放送時間順にソートする"""
+    return sorted(blocks, key=extract_time_from_block)
+
 def main():
     if len(sys.argv) != 2:
         print("日付を引数で指定してください (例: python script.py 20250124)")
@@ -361,34 +435,49 @@ def main():
     target_date = sys.argv[1]
     output_dir = "output"
     os.makedirs(output_dir, exist_ok=True)
-    output_file_path = os.path.join(output_dir, f"{target_date}_combined.txt")
+    output_file_path = os.path.join(output_dir, f"{target_date}.txt")
 
     start_time = time.time()
     nhk_programs = parse_nhk_programs_config()
     tvtokyo_programs = parse_tvtokyo_programs_config()
 
+    # NHKとテレビ東京のタスクを1つのリストにまとめる
+    tasks = []
+    for program_title, list_url in nhk_programs.items():
+        tasks.append(('nhk', program_title, list_url, target_date, start_time))
+    for program_name, config in tvtokyo_programs.items():
+        tasks.append(('tvtokyo', program_name, config, target_date, start_time))
+
+    total_tasks = len(tasks)
+    processed_tasks = 0
+
+    results = []
     with multiprocessing.Pool() as pool:
-        nhk_args = [(program_title, list_url, target_date, start_time) for program_title, list_url in nhk_programs.items()]
-        tvtokyo_args = [(program_name, config, target_date, start_time) for program_name, config in tvtokyo_programs.items()]
-
-        total_tasks = len(nhk_args) + len(tvtokyo_args)
-        processed_tasks = 0
-
-        results = []
-        for result in pool.imap_unordered(fetch_nhk_program_info, nhk_args):
-            results.append(result)
-            processed_tasks += 1
-            print(f"\r進捗: {processed_tasks}/{total_tasks}\n", end="", flush=True)
-
-        for result in pool.imap_unordered(fetch_tvtokyo_program_info, tvtokyo_args):
-            results.append(result)
-            processed_tasks += 1
-            print(f"\r進捗: {processed_tasks}/{total_tasks}\n", end="", flush=True)
-
-    with open(output_file_path, "w", encoding="utf-8") as f:
-        for result in results:
+        for result in pool.imap_unordered(fetch_program_info, tasks):
             if result:
-                f.write(result + "\n")
+                results.append(result)
+            processed_tasks += 1
+            print(f"\r進捗: {processed_tasks}/{total_tasks}\n", end="", flush=True)
+
+    # 結果を番組ブロックごとに分割
+    blocks = []
+    current_block = []
+    for line in results:
+        if line.startswith('●'):
+            if current_block:
+                blocks.append('\n'.join(current_block))
+                current_block = []
+        current_block.append(line)
+    if current_block:
+        blocks.append('\n'.join(current_block))
+
+    # 番組ブロックを時間順にソート
+    sorted_blocks = sort_blocks_by_time(blocks)
+
+    # ソートされた結果をファイルに書き込む
+    with open(output_file_path, "w", encoding="utf-8") as f:
+        for block in sorted_blocks:
+            f.write(block + '\n')
 
     end_time = time.time()
     elapsed_time = end_time - start_time
