@@ -4,7 +4,7 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 import sys
 import time
@@ -34,7 +34,6 @@ console.setFormatter(formatter)
 logging.getLogger('').addHandler(console)
 # root loggerのレベルを設定（必要に応じて）
 logging.getLogger('').setLevel(logging.INFO)
-
 
 
 class CustomExpectedConditions:
@@ -93,14 +92,28 @@ def extract_episode_urls(driver: webdriver.Chrome, target_url: str, formatted_da
             EC.presence_of_all_elements_located((By.CSS_SELECTOR, 'div[id^="News_Detail__VideoItem__"]'))
         )
         urls = []
+        today = datetime.now().date()
+        yesterday = today - timedelta(days=1)
+        formatted_today = format_date(today.strftime('%Y%m%d'))
+        formatted_yesterday = format_date(yesterday.strftime('%Y%m%d'))
+
         for episode in episodes:
             try:
                 date_element = WebDriverWait(episode, 5).until(
                     lambda e: e.find_element(By.CSS_SELECTOR, 'span.sc-c564813-0.iCkNIF[role="presentation"]')
                 )
-                if date_element.text.strip() == formatted_date:
+                date_text = date_element.text.strip()
+
+                if "今日" in date_text and formatted_today == formatted_date:
                     link = episode.find_element(By.CSS_SELECTOR, 'a[href*="post_"]').get_attribute("href")
                     urls.append(link)
+                elif "昨日" in date_text and formatted_yesterday == formatted_date:
+                     link = episode.find_element(By.CSS_SELECTOR, 'a[href*="post_"]').get_attribute("href")
+                     urls.append(link)
+                elif date_text == formatted_date:
+                    link = episode.find_element(By.CSS_SELECTOR, 'a[href*="post_"]').get_attribute("href")
+                    urls.append(link)
+
             except Exception as e:
                 logging.error(f"エピソード解析中にエラー: {e} - {program_name}")
         return urls
@@ -126,17 +139,19 @@ def fetch_program_details(program_name, config, target_date, start_time):
     driver = create_driver()
     formatted_date = format_date(target_date)
     output = []
+    program_start_time = time.time()
 
     try:
         if is_skip_day(program_name, target_date):
-                return None
+            logging.info(f"{program_name} はスキップされました")
+            return None
 
         weekday = datetime.strptime(target_date, '%Y%m%d').weekday()
         program_time = format_program_time(program_name, weekday, config["time"])
 
         current_time = time.time()
         elapsed_time = current_time - start_time # 全処理開始からの経過時間
-        logging.info(f"検索中 : {program_name} (経過時間: {elapsed_time:.0f}秒)")
+        logging.info(f"検索開始: {program_name} (経過時間: {elapsed_time:.0f}秒)")
 
         episode_urls = extract_episode_urls(driver, config["url"], formatted_date, program_name)
         if not episode_urls:
@@ -151,7 +166,9 @@ def fetch_program_details(program_name, config, target_date, start_time):
         urls = "\n".join(url for _, url in episode_details if url)
 
         # 出力をフォーマット
-        return f"●{program_name}{program_time}\n{titles}\n{urls}"
+        formatted_output = f"●{program_name}{program_time}\n{titles}\n{urls}"
+        logging.info(f"{program_name} の詳細情報を取得しました")
+        return formatted_output
 
     except Exception as e:
        logging.error(f"番組情報取得中にエラー: {e} - {program_name}")
@@ -159,6 +176,10 @@ def fetch_program_details(program_name, config, target_date, start_time):
 
     finally:
         driver.quit()
+        program_end_time = time.time()
+        program_elapsed_time = program_end_time - program_start_time
+        logging.info(f"{program_name} の処理時間: {program_elapsed_time:.0f}秒")
+
 
 
 def fetch_program_info(args):
@@ -192,7 +213,8 @@ def main():
         for result in pool.imap_unordered(fetch_program_info, program_args):
             results.append(result)
             processed_tasks += 1
-            print(f"\r進捗: {processed_tasks}/{total_tasks}\n", end="", flush=True)
+            print(f"\r進捗: {processed_tasks}/{total_tasks} - {program_args[processed_tasks-1][0]}\n", end="", flush=True)
+
 
     with open(output_file_path, "w", encoding="utf-8") as f:
         for result in results:
@@ -201,7 +223,6 @@ def main():
 
     end_time = time.time() # 全処理の終了時間
     elapsed_time = end_time - start_time
-    # logging.info(f"結果を {output_file_path} に出力しました。（経過時間：{elapsed_time:.0f}秒）") # この行を削除
     print(f"結果を {output_file_path} に出力しました。（経過時間：{elapsed_time:.0f}秒）")
 
 
