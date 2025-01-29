@@ -296,53 +296,6 @@ def fetch_tvtokyo_episode_details(driver: webdriver.Chrome, episode_url: str, pr
         logging.error(f"エピソード詳細取得エラー: {e} - {program_name}, {episode_url}")
         return None, None
 
-
-# def fetch_tvtokyo_program_details(program_name, config, target_date, start_time):
-#     driver = create_driver()
-#     formatted_date = format_date(target_date)
-#     output = []
-#     program_start_time = time.time()
-
-#     try:
-#         if is_skip_day(program_name, target_date):
-#             logging.info(f"{program_name} はスキップされました")
-#             return None
-
-#         weekday = datetime.strptime(target_date, '%Y%m%d').weekday()
-#         program_time = format_program_time(program_name, weekday, config["time"])
-
-#         current_time = time.time()
-#         elapsed_time = current_time - start_time
-#         logging.info(f"検索開始: {program_name} (経過時間: {elapsed_time:.0f}秒)")
-
-#         list_url = config["url"]  # リストURLを取得
-#         episode_urls = extract_tvtokyo_episode_urls(driver, list_url, formatted_date, program_name)
-#         if not episode_urls:
-#             # ログメッセージに番組名とURLを追加
-#             logging.warning(f"{program_name} のエピソードが見つかりませんでした - {list_url}")
-#             return None
-
-#         episode_details = [
-#             fetch_tvtokyo_episode_details(driver, url, program_name) for url in episode_urls
-#         ]
-#         titles = "\n".join(f"・{title}" for title, _ in episode_details if title)
-#         urls = "\n".join(url for _, url in episode_details if url)
-
-#         formatted_output = f"●{program_name}{program_time}\n{titles}\n{urls}\n"
-#         logging.info(f"{program_name} の詳細情報を取得しました")
-#         return formatted_output
-
-#     except Exception as e:
-#         logging.error(f"番組情報取得中にエラー: {e} - {program_name}")
-#         return None
-
-#     finally:
-#         driver.quit()
-#         program_end_time = time.time()
-#         program_elapsed_time = program_end_time - program_start_time
-#         logging.info(f"{program_name} の処理時間: {program_elapsed_time:.0f}秒")
-
-
 def fetch_tvtokyo_program_details(program_name, config, target_date, start_time):
     driver = create_driver()
     formatted_date = format_date(target_date)
@@ -385,7 +338,6 @@ def fetch_tvtokyo_program_details(program_name, config, target_date, start_time)
         driver.quit()
         # 処理時間のログ出力を削除（NHKと統一するため）
 
-
 def fetch_program_info(args):
     """並列処理用のラッパー関数"""
     task_type, *rest = args
@@ -396,16 +348,13 @@ def fetch_program_info(args):
     else:
         return None
 
-
 def fetch_nhk_program_info(args):
     program_title, list_url, target_date, start_time = args
     return get_nhk_info_formatted(program_title, list_url, target_date, start_time)
 
-
 def fetch_tvtokyo_program_info(args):
     program_name, config, target_date, start_time = args
     return fetch_tvtokyo_program_details(program_name, config, target_date, start_time)
-
 
 def create_driver() -> webdriver.Chrome:
     options = Options()
@@ -427,7 +376,13 @@ def extract_time_from_block(block):
 
 def sort_blocks_by_time(blocks):
     """番組ブロックを放送時間順にソートする"""
-    return sorted(blocks, key=extract_time_from_block)
+    # ヘッダーテキストをスキップしてソート
+    return sorted(blocks, key=lambda block: extract_time_from_block(block) if not block.startswith("2") else (0,0))
+
+def get_japanese_weekday(date):
+    """日付から日本語の曜日を取得する"""
+    weekdays = ["月", "火", "水", "木", "金", "土", "日"]
+    return weekdays[date.weekday()]
 
 def main():
     if len(sys.argv) != 2:
@@ -438,6 +393,12 @@ def main():
     output_dir = "output"
     os.makedirs(output_dir, exist_ok=True)
     output_file_path = os.path.join(output_dir, f"{target_date}.txt")
+
+    # 日付をフォーマット
+    target_date_dt = datetime.strptime(target_date, '%Y%m%d')
+    formatted_date = target_date_dt.strftime('%y/%m/%d')
+    japanese_weekday = get_japanese_weekday(target_date_dt)
+    header_text = f"{formatted_date}({japanese_weekday})の各ニュースの特集など"
 
     start_time = time.time()
     nhk_programs = parse_nhk_programs_config()
@@ -478,8 +439,9 @@ def main():
 
     # ソートされた結果をファイルに書き込む
     with open(output_file_path, "w", encoding="utf-8") as f:
-        for block in sorted_blocks:
-            f.write(block + '\n')
+        f.write(header_text + '\n\n')
+        for i, block in enumerate(sorted_blocks):
+            f.write(block + '\n' if i < len(sorted_blocks) - 1 else block)
 
     end_time = time.time()
     elapsed_time = end_time - start_time
