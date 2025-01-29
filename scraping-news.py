@@ -182,6 +182,8 @@ def get_nhk_info_formatted(program_title, list_url, target_date, start_time):
         driver.quit()
 
 def _extract_program_time(driver, program_title, episode_url):
+    if program_title == "国際報道 2025":
+        return "（BS NHK 22:00-22:45）"
     try:
         time_element = WebDriverWait(driver, DEFAULT_TIMEOUT).until(
             EC.presence_of_element_located((By.CLASS_NAME, "stream_panel--info--meta"))
@@ -416,12 +418,12 @@ def create_driver() -> webdriver.Chrome:
 def extract_time_from_block(block):
     """番組ブロックから放送時間を抽出するヘルパー関数"""
     first_line = block.split('\n')[0]  # ブロックの最初の行を取得
-    time_match = re.search(r'（(NHK|テレ東) (\d{2}:\d{2})', first_line)
+    time_match = re.search(r'（(NHK|テレ東|BS NHK) (\d{2}:\d{2})', first_line)
     if time_match:
         broadcaster, time_str = time_match.groups()
         hour, minute = map(int, time_str.split(':'))
         return hour, minute
-    return 24, 0  # 時間が抽出できない場合は最後にソート
+    return 25, 0  # 時間が抽出できない場合は最後にソート
 
 def sort_blocks_by_time(blocks):
     """番組ブロックを放送時間順にソートする"""
