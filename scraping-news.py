@@ -181,25 +181,40 @@ def get_nhk_info_formatted(program_title, list_url, target_date, start_time):
     finally:
         driver.quit()
 
-def _extract_program_time(driver, program_title, episode_url):
+import time
+from selenium.common.exceptions import TimeoutException, NoSuchElementException
+
+def _extract_program_time(driver, program_title, episode_url, max_retries=3, retry_interval=1):
     if program_title == "国際報道 2025":
         return "（BS NHK 22:00-22:45）"
-    try:
-        time_element = WebDriverWait(driver, DEFAULT_TIMEOUT).until(
-            EC.presence_of_element_located((By.CLASS_NAME, "stream_panel--info--meta"))
-        )
-        time_text = time_element.text.strip()
-        start_ampm, start_time, end_ampm, end_time = _extract_time_info(time_text)
-        if start_time and end_time:
-            start_time_24h = _convert_to_24h(start_ampm, start_time)
-            end_time_24h = _convert_to_24h(end_ampm, end_time)
-            return f"（NHK {start_time_24h}-{end_time_24h}）"
-        else:
-            logging.warning(f"時間の取得に失敗しました。取得した文字列: {time_text} - {program_title}, {episode_url}")
+
+    for retry in range(max_retries):
+        try:
+            # 要素が見つかるまで最大 DEFAULT_TIMEOUT 秒待つ
+            time_element = WebDriverWait(driver, DEFAULT_TIMEOUT).until(
+                EC.presence_of_element_located((By.CLASS_NAME, "stream_panel--info--meta"))
+            )
+            time_text = time_element.text.strip()
+            start_ampm, start_time, end_ampm, end_time = _extract_time_info(time_text)
+            if start_time and end_time:
+                start_time_24h = _convert_to_24h(start_ampm, start_time)
+                end_time_24h = _convert_to_24h(end_ampm, end_time)
+                return f"（NHK {start_time_24h}-{end_time_24h}）"
+            else:
+                logging.warning(f"時間の取得に失敗しました。取得した文字列: {time_text} - {program_title}, {episode_url}")
+                return "（放送時間取得失敗）"
+        except (TimeoutException, NoSuchElementException) as e:
+            logging.warning(f"要素が見つかりませんでした (リトライ {retry+1}/{max_retries}): {e} - {program_title}, {episode_url}")
+            if retry < max_retries - 1: # 最後のリトライではない場合に待機
+                time.sleep(retry_interval)
+            continue  # 次のリトライへ
+
+        except Exception as e:
+            logging.error(f"放送時間情報の抽出に失敗しました: {e} - {program_title}, {episode_url}")
             return "（放送時間取得失敗）"
-    except Exception as e:
-        logging.error(f"放送時間情報の抽出に失敗しました: {e} - {program_title}, {episode_url}")
-        return "（放送時間取得失敗）"
+
+    logging.error(f"最大リトライ回数を超えました: {program_title}, {episode_url}")
+    return "（放送時間取得失敗）" # 最大リトライ回数を超えた場合
 
 def _extract_time_info(time_text):
     match = re.search(r'((午前|午後)?(\d{1,2}:\d{2}))-((午前|午後)?(\d{1,2}:\d{2}))', time_text)
