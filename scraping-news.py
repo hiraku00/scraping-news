@@ -105,6 +105,17 @@ def get_nhk_formatted_episode_info(driver, program_title, episode_url):
             logging.info(f"{program_title} の詳細情報を取得しました")
             return formatted_output
 
+        nhk_plus_url = None
+        try:
+            # ページ内にある 'detailed-memo-body' の中から 'detailed-memo-headline' を持ち、
+            #  'NHKプラス配信はこちらからご覧ください' という文言を含むリンクを直接探す
+            span_element = WebDriverWait(driver, DEFAULT_TIMEOUT).until(
+                EC.presence_of_element_located((By.XPATH, '//div[@class="detailed-memo-body"]/span[contains(@class, "detailed-memo-headline")]/a[contains(text(), "NHKプラス配信はこちらからご覧ください")]'))
+            )
+            nhk_plus_url = span_element.get_attribute('href')
+        except (NoSuchElementException, TimeoutException):
+            pass  # 要素が見つからないか、タイムアウトした場合は無視する
+
         try:
             eyecatch_div = WebDriverWait(driver, DEFAULT_TIMEOUT).until(
                 EC.presence_of_element_located((By.CLASS_NAME, 'gc-images.is-medium.eyecatch'))
@@ -117,7 +128,11 @@ def get_nhk_formatted_episode_info(driver, program_title, episode_url):
             final_url = driver.current_url
             formatted_output = f"●{program_title}{program_time}\n"
             formatted_output += f"・{episode_title}\n"
-            formatted_output += f"{final_url}\n"
+
+            if nhk_plus_url:
+                formatted_output += f"{nhk_plus_url}\n"
+            else:
+                formatted_output += f"{final_url}\n"
             logging.info(f"{program_title} の詳細情報を取得しました")
             return formatted_output
 
