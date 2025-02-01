@@ -16,7 +16,9 @@ def parse_programs_from_config(config, prefix):
             program_name = config.get(section, 'name').strip()
             url = config.get(section, 'url').strip()
             time = config.get(section, 'time').strip() if config.has_option(section, 'time') else None
-            programs[program_name] = {"url": url, "time": time}
+            if program_name not in programs: # 番組名がprogramsになければ、リストを新規作成
+                programs[program_name] = []
+            programs[program_name].append({"url": url, "time": time}) # URLとtimeをリストに追加
     return programs
 
 def extract_urls_from_file(file_path):
@@ -32,9 +34,47 @@ def extract_urls_from_file(file_path):
 def open_urls_from_config(config_programs, program_name, output_urls):
     """設定ファイルのURLと出力されたURLを開く関数"""
     if program_name in config_programs:
-        config_url = config_programs[program_name]['url']
-        print(f"設定ファイル内のURL ({program_name}): {config_url}")
-        webbrowser.open(config_url)
+        config_urls = config_programs[program_name] # config_programs[program_name] はURLリスト
+        selected_config_url = None # 選択された設定ファイルURLを初期化
+
+        wbs_feature_url = None
+        wbs_trend_tamago_url = None
+
+        for program_config in config_urls: # WBS の設定URLを検索
+            if "feature" in program_config['url']:
+                wbs_feature_url = program_config['url']
+            elif "trend_tamago" in program_config['url']:
+                wbs_trend_tamago_url = program_config['url']
+
+        if program_name == "WBS": # WBS の場合のみURL判定
+            has_feature_url = False
+            has_trend_tamago_url = False
+            for url in output_urls: # 出力ファイルURLをチェック
+                if "feature" in url:
+                    has_feature_url = True
+                elif "trend_tamago" in url:
+                    has_trend_tamago_url = True
+
+            print(f"設定ファイル内のURL (WBS):") # 設定ファイルURL表示開始
+
+            if has_feature_url: # feature URL が出力ファイルにあれば feature URL を選択
+                selected_config_url = wbs_feature_url
+                if selected_config_url:
+                    print(f"- {selected_config_url} (feature)") # 選択されたURLを表示 (feature)
+                    webbrowser.open(selected_config_url)
+            elif has_trend_tamago_url: # trend_tamago URL が出力ファイルにあれば trend_tamago URL を選択
+                selected_config_url = wbs_trend_tamago_url
+                if selected_config_url:
+                    print(f"- {selected_config_url} (trend_tamago)") # 選択されたURLを表示 (trend_tamago)
+                    webbrowser.open(selected_config_url)
+            else: # どちらのURLも出力ファイルになければ、設定ファイルURLは開かない
+                print("- (出力ファイルにWBSのURLが見つかりませんでした)") # 設定ファイルURLを開かないことを表示
+
+        else: # WBS 以外の場合は、最初の設定ファイルURLを開く (従来通り)
+            selected_config_url = config_urls[0]['url'] # 最初のURLを取得
+            print(f"設定ファイル内のURL ({program_name}): {selected_config_url}")
+            webbrowser.open(selected_config_url)
+
     else:
         print(f"設定ファイルに {program_name} のURLが見つかりませんでした")
 

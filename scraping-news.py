@@ -252,28 +252,31 @@ def _convert_to_24h(ampm, time_str):
 
 # テレビ東京スクレイピング関数群
 def parse_tvtokyo_programs_config():
-    programs = {}
+    programs = {} # 辞書に変更
+    wbs_programs = [] # WBS 関連番組を格納するリスト
+    other_programs = {} # WBS 以外の番組を格納する辞書
     for section in tvtokyo_config.sections():
         if section.startswith('program_'):
             program_name = tvtokyo_config.get(section, 'name')
             program_url = tvtokyo_config.get(section, 'url')
             program_time = tvtokyo_config.get(section, 'time')
-            programs[program_name.strip()] = {"url": program_url.strip(), "time": program_time.strip()}
-    return programs
+            program_config = {"url": program_url.strip(), "time": program_time.strip(), "name": program_name.strip()} # name を config に追加
+            if program_name == "WBS": # 完全一致で判定 (ユーザー指示に従う)
+                wbs_programs.append(program_config) # WBS 関連番組をリストに追加
+            else:
+                other_programs[program_name.strip()] = program_config # 辞書に追加
+    if wbs_programs: # WBS 関連番組が存在する場合
+        programs["WBS"] = wbs_programs # programs 辞書に "WBS" キーで WBS 関連番組リストを登録
+    programs.update(other_programs) # other_programs を programs にマージ
+    return programs # programs 辞書を返す
+
 
 def format_date(target_date: str) -> str:
     return f"{target_date[:4]}.{target_date[4:6]}.{target_date[6:8]}"
 
-def is_skip_day(program_name: str, target_date: str) -> bool:
-    weekday = datetime.strptime(target_date, '%Y%m%d').weekday()
-    if program_name == "WBS（トレたまneo）" and weekday != 3:
-        return True
-    if weekday >= 5:
-        return True
-    return False
 
 def format_program_time(program_name: str, weekday: int, default_time: str) -> str:
-    if program_name.startswith("WBS"):
+    if program_name.startswith("WBS"): # startswith で判定
         return "（テレ東 22:00~22:58）" if weekday < 4 else "（テレ東 23:00~23:58）"
     return f"（テレ東 {default_time}）"
 
@@ -326,42 +329,54 @@ def fetch_tvtokyo_episode_details(driver: webdriver.Chrome, episode_url: str, pr
         logging.error(f"エピソード詳細取得エラー: {e} - {program_name}, {episode_url}")
         return None, None
 
-def fetch_tvtokyo_program_details(program_name, config, target_date, start_time):
+def fetch_tvtokyo_program_details(program_configs, target_date, start_time): # program_name を program_configs に変更
     driver = create_driver()
     formatted_date = format_date(target_date)
-    list_url = config["url"]  # URL取得を前に移動
+    wbs_titles = [] # WBS のタイトルを格納するリスト
+    wbs_urls = [] # WBS の URL を格納するリスト
 
     try:
-        if is_skip_day(program_name, target_date):
-            logging.info(f"{program_name} はスキップされました")
-            return None
-
-        # 経過時間計算（NHKと同様の形式で検索開始時に表示）
-        current_time = time.time()
-        elapsed_time = current_time - start_time
-        logging.info(f"検索開始: {program_name} (経過時間: {elapsed_time:.0f}秒)")
-
         weekday = datetime.strptime(target_date, '%Y%m%d').weekday()
-        program_time = format_program_time(program_name, weekday, config["time"])
+        program_time = format_program_time(program_configs[0]['name'], weekday, program_configs[0]['time']) # 番組名を config[0]['name'] から取得
 
-        episode_urls = extract_tvtokyo_episode_urls(driver, list_url, formatted_date, program_name)
-        if not episode_urls:
-            # NHKと同様の警告メッセージに変更
-            logging.warning(f"{program_name}が見つかりませんでした - {list_url}")
+        for program_config in program_configs: # 複数の WBS 設定をループ処理
+            program_name = program_config['name'] # config から name を取得 (デバッグ用?)
+            list_url = program_config["url"] # config から url を取得
+
+            # 経過時間計算（NHKと同様の形式で検索開始時に表示）
+            current_time = time.time()
+            elapsed_time = current_time - start_time
+            logging.info(f"検索開始: {program_name} (経過時間: {elapsed_time:.0f}秒)") # ログは元の番組名を表示
+
+
+            episode_urls = extract_tvtokyo_episode_urls(driver, list_url, formatted_date, program_name)
+            if not episode_urls:
+                # NHKと同様の警告メッセージに変更
+                logging.warning(f"{program_name}が見つかりませんでした - {list_url}") # 警告ログも元の番組名を表示
+                continue # URL が見つからない場合は次の番組設定へ
+
+            episode_details = [
+                fetch_tvtokyo_episode_details(driver, url, program_name) for url in episode_urls
+            ]
+            titles = [title for title, _ in episode_details if title] # タイトルのみリストに格納
+            urls = [url for _, url in episode_details if url] # URL のみリストに格納
+
+            wbs_titles.extend(titles) # WBS タイトルリストに追加
+            wbs_urls.extend(urls) # WBS URLリストに追加
+
+
+        if not wbs_titles: # WBS タイトルが一つもない場合は None を返す
             return None
 
-        episode_details = [
-            fetch_tvtokyo_episode_details(driver, url, program_name) for url in episode_urls
-        ]
-        titles = "\n".join(f"・{title}" for title, _ in episode_details if title)
-        urls = "\n".join(url for _, url in episode_details if url)
+        formatted_titles = "\n".join(f"・{title}" for title in wbs_titles) # WBS タイトルを整形
+        formatted_urls = "\n".join(wbs_urls) # WBS URL を整形
 
-        formatted_output = f"●{program_name}{program_time}\n{titles}\n{urls}\n"
-        logging.info(f"{program_name} の詳細情報を取得しました")
+        formatted_output = f"●{program_configs[0]['name']}{program_time}\n{formatted_titles}\n{formatted_urls}\n" # 番組名を config[0]['name'] から取得
+        logging.info(f"{program_configs[0]['name']} の詳細情報を取得しました") # ログメッセージも config[0]['name'] に変更
         return formatted_output
 
     except Exception as e:
-        logging.error(f"番組情報取得中にエラー: {e} - {program_name}")
+        logging.error(f"番組情報取得中にエラー: {e} - {program_configs[0]['name']}") # エラーログも config[0]['name'] に変更
         return None
 
     finally:
@@ -374,17 +389,24 @@ def fetch_program_info(args):
     if task_type == 'nhk':
         return fetch_nhk_program_info(rest)
     elif task_type == 'tvtokyo':
-        return fetch_tvtokyo_program_info(rest)
+        program_name = rest[0] # task_type が 'tvtokyo' の場合、最初の要素は program_name (または 'WBS')
+        if program_name == 'WBS': # program_name が 'WBS' の場合は WBS 関連番組リストを渡す
+            program_configs = rest[1]
+            target_date = rest[2]
+            start_time = rest[3]
+            return fetch_tvtokyo_program_details(program_configs, target_date, start_time) # fetch_tvtokyo_program_details に program_configs を渡す
+        else: # program_name が 'WBS' 以外の場合は、従来通り program_name, config, target_date, start_time を渡す
+            program_name = rest[0] # ← 修正点: program_name を取得
+            config = rest[1]
+            target_date = rest[2]
+            start_time = rest[3]
+            return fetch_tvtokyo_program_details([config], target_date, start_time) # config をリストで囲んで渡す (互換性のため)
     else:
         return None
 
 def fetch_nhk_program_info(args):
     program_title, list_url, target_date, start_time = args
     return get_nhk_info_formatted(program_title, list_url, target_date, start_time)
-
-def fetch_tvtokyo_program_info(args):
-    program_name, config, target_date, start_time = args
-    return fetch_tvtokyo_program_details(program_name, config, target_date, start_time)
 
 def create_driver() -> webdriver.Chrome:
     options = Options()
@@ -432,14 +454,19 @@ def main():
 
     start_time = time.time()
     nhk_programs = parse_nhk_programs_config()
-    tvtokyo_programs = parse_tvtokyo_programs_config()
+    tvtokyo_programs = parse_tvtokyo_programs_config() # 修正: parse_tvtokyo_programs_config の戻り値を受け取る
 
     # NHKとテレビ東京のタスクを1つのリストにまとめる
     tasks = []
     for program_title, list_url in nhk_programs.items():
         tasks.append(('nhk', program_title, list_url, target_date, start_time))
-    for program_name, config in tvtokyo_programs.items():
-        tasks.append(('tvtokyo', program_name, config, target_date, start_time))
+
+    if "WBS" in tvtokyo_programs: # WBS が tvtokyo_programs に存在する場合
+        tasks.append(('tvtokyo', 'WBS', tvtokyo_programs["WBS"], target_date, start_time)) # 'tvtokyo' タスクに WBS 関連番組リストを渡す
+
+    for program_name, config in tvtokyo_programs.items(): # WBS 以外のテレビ東京番組を処理
+        if program_name != "WBS": # WBS は既に処理済みのためスキップ
+            tasks.append(('tvtokyo', program_name, config, target_date, start_time))
 
     total_tasks = len(tasks)
     processed_tasks = 0
