@@ -332,8 +332,7 @@ def fetch_tvtokyo_episode_details(driver: webdriver.Chrome, episode_url: str, pr
 def fetch_tvtokyo_program_details(program_configs, target_date, start_time): # program_name を program_configs に変更
     driver = create_driver()
     formatted_date = format_date(target_date)
-    wbs_titles = [] # WBS のタイトルを格納するリスト
-    wbs_urls = [] # WBS の URL を格納するリスト
+    wbs_info = []  # タイトルとURLをまとめるリスト
 
     try:
         weekday = datetime.strptime(target_date, '%Y%m%d').weekday()
@@ -358,20 +357,21 @@ def fetch_tvtokyo_program_details(program_configs, target_date, start_time): # p
             episode_details = [
                 fetch_tvtokyo_episode_details(driver, url, program_name) for url in episode_urls
             ]
-            titles = [title for title, _ in episode_details if title] # タイトルのみリストに格納
-            urls = [url for _, url in episode_details if url] # URL のみリストに格納
 
-            wbs_titles.extend(titles) # WBS タイトルリストに追加
-            wbs_urls.extend(urls) # WBS URLリストに追加
+            # タイトルとURLを対応づけてリストに追加
+            for title, url in episode_details:
+                if title and url:
+                    wbs_info.append((title, url))
 
 
-        if not wbs_titles: # WBS タイトルが一つもない場合は None を返す
+        if not wbs_info: # WBS 情報が一つもない場合は None を返す
             return None
 
-        formatted_titles = "\n".join(f"・{title}" for title in wbs_titles) # WBS タイトルを整形
-        formatted_urls = "\n".join(wbs_urls) # WBS URL を整形
+        # フォーマット済みの文字列を生成
+        formatted_output = f"●{program_configs[0]['name']}{program_time}\n"  # 番組名を config[0]['name'] から取得
+        for title, url in wbs_info:
+            formatted_output += f"・{title}\n{url}\n"
 
-        formatted_output = f"●{program_configs[0]['name']}{program_time}\n{formatted_titles}\n{formatted_urls}\n" # 番組名を config[0]['name'] から取得
         logging.info(f"{program_configs[0]['name']} の詳細情報を取得しました") # ログメッセージも config[0]['name'] に変更
         return formatted_output
 
