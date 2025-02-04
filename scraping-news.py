@@ -429,7 +429,7 @@ def extract_time_from_block(block):
 def sort_blocks_by_time(blocks):
     """番組ブロックを放送時間順にソートする"""
     # ヘッダーテキストをスキップしてソート
-    return sorted(blocks, key=lambda block: extract_time_from_block(block) if not block.startswith("2") else (0,0))
+    return sorted(blocks, key=lambda block: extract_time_from_block(block))
 
 def get_japanese_weekday(date):
     """日付から日本語の曜日を取得する"""
@@ -445,12 +445,6 @@ def main():
     output_dir = "output"
     os.makedirs(output_dir, exist_ok=True)
     output_file_path = os.path.join(output_dir, f"{target_date}.txt")
-
-    # 日付をフォーマット
-    target_date_dt = datetime.strptime(target_date, '%Y%m%d')
-    formatted_date = target_date_dt.strftime('%y/%m/%d')
-    japanese_weekday = get_japanese_weekday(target_date_dt)
-    header_text = f"{formatted_date}({japanese_weekday})の各ニュースの特集など"
 
     start_time = time.time()
     nhk_programs = parse_nhk_programs_config()
@@ -496,7 +490,6 @@ def main():
 
     # ソートされた結果をファイルに書き込む
     with open(output_file_path, "w", encoding="utf-8") as f:
-        f.write(header_text + '\n\n')
         for i, block in enumerate(sorted_blocks):
             f.write(block + '\n' if i < len(sorted_blocks) - 1 else block)
 
