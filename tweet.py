@@ -50,13 +50,57 @@ client = tweepy.Client(
     access_token_secret=ACCESS_SECRET
 )
 
-# 認証チェック（user_auth=Trueを追加）
-try:
-    user_info = client.get_me(user_auth=True)
-    print(f"✅ 認証成功: @{user_info.data.username}")
-except tweepy.Unauthorized as e:
-    print(f"❌ 認証失敗: {e}")
-    sys.exit(1)
+# レート制限情報を取得する関数（リトライ処理付き）
+def get_rate_limit_info(client, max_retries=3, base_delay=10):
+    for attempt in range(max_retries):
+        try:
+            response = client.get_me(user_auth=True)  # 最初のAPI呼び出し
+
+            rate_limit_remaining = response.response.headers.get('x-rate-limit-remaining')
+            rate_limit_limit = response.response.headers.get('x-rate-limit-limit')
+            rate_limit_reset = response.response.headers.get('x-rate-limit-reset')
+
+            print(f"Remaining calls: {rate_limit_remaining}")
+            print(f"Rate limit: {rate_limit_limit}")
+            print(f"Reset time (UTC timestamp): {rate_limit_reset}")
+
+            return rate_limit_remaining, rate_limit_limit, rate_limit_reset
+
+        except tweepy.TweepyException as e:
+            if isinstance(e, tweepy.errors.TooManyRequests):
+                delay = base_delay * (2 ** attempt)
+                print(f"Rate limit exceeded (getting rate limit info): {delay}秒待機...")
+                time.sleep(delay)
+            else:
+                print(f"Error while getting rate limit info: {e}")
+                return None, None, None
+
+    print("Max retries reached while getting rate limit info.")
+    return None, None, None
+
+# レート制限情報を取得 (最初に実行)
+rate_limit_remaining, rate_limit_limit, rate_limit_reset = get_rate_limit_info(client)
+
+# 認証チェック（一時的に無効化）
+# try:
+#     user_info = client.get_me(user_auth=True)  # 2回目のAPI呼び出し (必要な場合)
+#     print(f"✅ 認証成功: @{user_info.data.username}")
+# except tweepy.Unauthorized as e:
+#     print(f"❌ 認証失敗: {e}")
+#     sys.exit(1)
+
+# 認証が成功したと仮定して進む（レート制限が厳しい場合は認証チェックをスキップ）
+print("⚠️ 認証チェックをスキップします (レート制限が厳しいため) ⚠️")
+# 認証チェックをスキップしても投稿できた理由は、以下のとおりです。
+# 1. OAuth 1.0a の認証情報 (API Key, API Secret, Access Token, Access Secret) が有効であった。
+#    create_tweet メソッドに user_auth=True を指定しているため、Tweepy はこれらの認証情報を使ってあなたのアカウントでツイートを投稿しようとします。
+# 2. クライアント初期化時に Bearer Token を指定していることで、API へのアクセス自体は認証されている。
+#    ただし、これは API の読み取り専用機能へのアクセスを許可するものであり、ユーザーアカウントでの操作には OAuth 1.0a の認証が必要です。
+#
+# 重要な注意点:
+# 認証チェックをスキップするということは、OAuth 1.0a の認証情報が有効であることを確認せずに処理を進めるということです。
+# もし OAuth 1.0a の認証情報が無効になっている場合、create_tweet メソッドはエラーを返す可能性があります。
+# レート制限が緩和されたら、必ず認証チェックを再度有効化して、OAuth 1.0a の認証情報が有効であることを確認するようにしてください。
 
 # コマンドライン引数から日付を取得
 if len(sys.argv) < 2:

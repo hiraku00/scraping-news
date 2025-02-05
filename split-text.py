@@ -22,7 +22,6 @@ def count_tweet_length(text):
     total_length = text_length - sum(len(url) for url in urls) + url_length
     return total_length
 
-
 # コマンドライン引数から日付を取得
 if len(sys.argv) < 2:
     print("使用方法: python tweet.py <日付 (例: 20250129)>")
@@ -39,7 +38,6 @@ try:
 except FileNotFoundError:
     print(f"エラー: {file_path} が見つかりません。")
     sys.exit(1)
-
 
 def split_program(text, max_length=230):
     """
@@ -105,46 +103,81 @@ def split_program(text, max_length=230):
 
     return split_tweets
 
+# プログラム（ブロック）ごとにテキストを分割する関数
+def split_by_program(text):
+    programs = re.split(r'(^●.*?\n)', text, flags=re.MULTILINE)
+    # 空文字列を削除
+    programs = [p for p in programs if p]
+    # プログラム名と内容を組み合わせる
+    program_list = []
+    for i in range(0, len(programs), 2):
+        if i + 1 < len(programs):
+            program_list.append(programs[i].strip() + '\n' + programs[i+1].strip() + '\n') # 前後の空白を削除して改行を挟む
+        else:
+            program_list.append(programs[i].strip())
+    return program_list
 
-# ファイルバックアップ
-try:
-    os.rename(file_path, backup_file_path)
-    print(f"ファイルを {backup_file_path} にバックアップしました。")
-except FileNotFoundError:
-    print(f"バックアップ元ファイル {file_path} が見つかりませんでした。処理を中断します。")
-    sys.exit(1)
-except Exception as e:
-    print(f"バックアップ処理中にエラーが発生しました: {e}")
-    sys.exit(1)
+# テキストをプログラムごとに分割
+programs = split_by_program(text)
 
-# 分割されたツイートを格納するリスト
-split_tweets = split_program(text,max_length=230)
+# 分割が必要なプログラムがあるかどうかを判定
+needs_split = False
+for program in programs:
+    if count_tweet_length(program) > 230:
+        needs_split = True
+        break
 
-# 分割されたツイートをファイルに書き込む
-try:
-    with open(file_path, "w", encoding="utf-8") as f:
-        for i, item in enumerate(split_tweets):
-            f.write(item)
-            if i < len(split_tweets) - 1:  # 最後の要素以外に改行を挿入
-                f.write("\n")  # 分割単位の間に空行を挿入
-
-            # 分割された内容とその文字数をコンソールに表示
-            length = count_tweet_length(item)
-            print(item)
-            print(f"文字数: {length}")
-            print("-" * 20)
-
-    print(f"分割されたツイートは {file_path} に保存しました。")
-
-except Exception as e:
-    print(f"分割されたツイートの保存中にエラーが発生しました: {e}")
-
-    # バックアップファイルを元に戻す
+if needs_split:
+    # ファイルバックアップ
     try:
-        os.rename(backup_file_path, file_path)
-        print(f"バックアップファイル {backup_file_path} を {file_path} に復元しました。")
+        os.rename(file_path, backup_file_path)
+        print(f"ファイルを {backup_file_path} にバックアップしました。")
+    except FileNotFoundError:
+        print(f"バックアップ元ファイル {file_path} が見つかりませんでした。処理を中断します。")
+        sys.exit(1)
     except Exception as e:
-        print(f"バックアップファイルの復元中にエラーが発生しました: {e}")
-    sys.exit(1)
+        print(f"バックアップ処理中にエラーが発生しました: {e}")
+        sys.exit(1)
+
+    # 分割されたプログラムを格納するリスト
+    new_programs = []
+    for program in programs:
+        if count_tweet_length(program) > 230:
+            # プログラムを分割
+            split_tweets = split_program(program, max_length=230)
+            new_programs.extend(split_tweets)
+        else:
+            # 分割不要なプログラムはそのまま追加
+            new_programs.append(program)
+
+    # 分割されたテキストをファイルに書き込む
+    try:
+        with open(file_path, "w", encoding="utf-8") as f:
+            for i, item in enumerate(new_programs):
+                f.write(item)
+                if i < len(new_programs) - 1:  # 最後の要素以外に改行を挿入
+                    f.write("\n")  # 分割単位の間に空行を挿入
+
+                # 分割された内容とその文字数をコンソールに表示
+                length = count_tweet_length(item)
+                print(item)
+                print(f"文字数: {length}")
+                print("-" * 20)
+
+        print(f"分割されたツイートは {file_path} に保存しました。")
+
+    except Exception as e:
+        print(f"分割されたツイートの保存中にエラーが発生しました: {e}")
+
+        # バックアップファイルを元に戻す
+        try:
+            os.rename(backup_file_path, file_path)
+            print(f"バックアップファイル {backup_file_path} を {file_path} に復元しました。")
+        except Exception as e:
+            print(f"バックアップファイルの復元中にエラーが発生しました: {e}")
+        sys.exit(1)
+else:
+    # 分割が必要ない場合
+    print("分割は不要でした。ファイルは変更されません。")
 
 print("処理完了")
