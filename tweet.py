@@ -42,12 +42,25 @@ def count_tweet_length(text):
     return total_length
 
 # 認証 (OAuth 2.0 Bearer Token と OAuth 1.0a の併用)
+#
+# OAuth 2.0 Bearer Token:
+#   - 目的: API へのアクセスを認証し、主に public なエンドポイント (データの読み取り) へのアクセスを許可します。
+#   - 必須: API を利用するためには必須です。これがなければAPIにアクセスできません。
+#
+# OAuth 1.0a (API Key, API Secret, Access Token, Access Secret):
+#   - 目的: 特定のユーザーアカウント (あなたのアカウント) として、ツイートの投稿やユーザー情報の変更など、
+#          ユーザーコンテキストが必要な操作を行うことを認証します。
+#   - 必須: ツイートを投稿するためには必須です。
+#
+# まとめ:
+#   - Bearer Token は API へのアクセスを許可し、
+#   - OAuth 1.0a 認証は特定のアカウントとして操作することを許可します。
 client = tweepy.Client(
-    bearer_token=BEARER_TOKEN,
-    consumer_key=API_KEY,
-    consumer_secret=API_SECRET,
-    access_token=ACCESS_TOKEN,
-    access_token_secret=ACCESS_SECRET
+    bearer_token=BEARER_TOKEN,  # API へのアクセス認証 (必須)
+    consumer_key=API_KEY,         # OAuth 1.0a 認証用 (必須)
+    consumer_secret=API_SECRET,    # OAuth 1.0a 認証用 (必須)
+    access_token=ACCESS_TOKEN,      # OAuth 1.0a 認証用 (必須)
+    access_token_secret=ACCESS_SECRET # OAuth 1.0a 認証用 (必須)
 )
 
 # レート制限情報を取得する関数（リトライ処理付き）
@@ -56,20 +69,33 @@ def get_rate_limit_info(client, max_retries=3, base_delay=10):
         try:
             response = client.get_me(user_auth=True)  # 最初のAPI呼び出し
 
-            rate_limit_remaining = response.response.headers.get('x-rate-limit-remaining')
-            rate_limit_limit = response.response.headers.get('x-rate-limit-limit')
-            rate_limit_reset = response.response.headers.get('x-rate-limit-reset')
+            # meta 属性をチェック
+            if hasattr(response, 'meta'):
+                rate_limit_remaining = response.meta.get('x-rate-limit-remaining')
+                rate_limit_limit = response.meta.get('x-rate-limit-limit')
+                rate_limit_reset = response.meta.get('x-rate-limit-reset')
 
-            print(f"Remaining calls: {rate_limit_remaining}")
-            print(f"Rate limit: {rate_limit_limit}")
-            print(f"Reset time (UTC timestamp): {rate_limit_reset}")
+                # None でなかったらintに変換
+                if rate_limit_remaining is not None:
+                    rate_limit_remaining = int(rate_limit_remaining)
+                if rate_limit_limit is not None:
+                    rate_limit_limit = int(rate_limit_limit)
+                if rate_limit_reset is not None:
+                    rate_limit_reset = int(rate_limit_reset)
 
-            return rate_limit_remaining, rate_limit_limit, rate_limit_reset
+                print(f"Remaining calls: {rate_limit_remaining}")
+                print(f"Rate limit: {rate_limit_limit}")
+                print(f"Reset time (UTC timestamp): {rate_limit_reset}")
+
+                return rate_limit_remaining, rate_limit_limit, rate_limit_reset
+            else:
+                print("response.meta が存在しません")
+                return None, None, None
 
         except tweepy.TweepyException as e:
             if isinstance(e, tweepy.errors.TooManyRequests):
                 delay = base_delay * (2 ** attempt)
-                print(f"Rate limit exceeded (getting rate limit info): {delay}秒待機...")
+                print(f"レートリミット exceeded: {delay}秒待機...")
                 time.sleep(delay)
             else:
                 print(f"Error while getting rate limit info: {e}")
@@ -81,26 +107,31 @@ def get_rate_limit_info(client, max_retries=3, base_delay=10):
 # レート制限情報を取得 (最初に実行)
 rate_limit_remaining, rate_limit_limit, rate_limit_reset = get_rate_limit_info(client)
 
-# 認証チェック（一時的に無効化）
-# try:
-#     user_info = client.get_me(user_auth=True)  # 2回目のAPI呼び出し (必要な場合)
-#     print(f"✅ 認証成功: @{user_info.data.username}")
-# except tweepy.Unauthorized as e:
-#     print(f"❌ 認証失敗: {e}")
-#     sys.exit(1)
+# 認証チェック (OAuth 1.0a 認証情報の有効性確認)
+#
+# 目的: OAuth 1.0a 認証情報 (API Key, API Secret, Access Token, Access Secret) が有効であることを確認します。
+#       これにより、ツイートの投稿時に認証エラーが発生する可能性を減らすことができます。
+#
+# 必須: 本来は必須ですが、レート制限が厳しい場合、このチェックをスキップすることがあります。
+#       ただし、スキップする場合は、OAuth 1.0a 認証情報が有効であることを確認する必要があります。
+#
+# なぜやらなくても Tweet できるか:
+#   - `client.create_tweet` 時に `user_auth=True` を指定することで、Tweepy は OAuth 1.0a 認証情報を利用して Tweet を投稿します。
+#   - つまり、認証チェックをスキップしても、OAuth 1.0a 認証情報が有効であれば Tweet は投稿できます。
+#   - ただし、認証情報が無効な場合、`client.create_tweet` はエラーを返します。
+try:
+    user_info = client.get_me(user_auth=True)  # 2回目のAPI呼び出し (OAuth 1.0a 認証情報の有効性確認)
+    print(f"✅ 認証成功: @{user_info.data.username}")
+except tweepy.Unauthorized as e:
+    print(f"❌ 認証失敗: {e}")
+    print("⚠️ 認証に失敗しましたが、処理を継続します (認証情報の確認を推奨) ⚠️")  # 警告メッセージ
+    # sys.exit(1)  # プログラムを停止しない
+except Exception as e:  # その他の例外もキャッチ
+    print(f"❌ 認証チェック中に予期せぬエラーが発生しました: {e}")
+    print("⚠️ 認証チェック中にエラーが発生しましたが、処理を継続します (API接続の確認を推奨) ⚠️")  # 警告メッセージ
 
 # 認証が成功したと仮定して進む（レート制限が厳しい場合は認証チェックをスキップ）
 print("⚠️ 認証チェックをスキップします (レート制限が厳しいため) ⚠️")
-# 認証チェックをスキップしても投稿できた理由は、以下のとおりです。
-# 1. OAuth 1.0a の認証情報 (API Key, API Secret, Access Token, Access Secret) が有効であった。
-#    create_tweet メソッドに user_auth=True を指定しているため、Tweepy はこれらの認証情報を使ってあなたのアカウントでツイートを投稿しようとします。
-# 2. クライアント初期化時に Bearer Token を指定していることで、API へのアクセス自体は認証されている。
-#    ただし、これは API の読み取り専用機能へのアクセスを許可するものであり、ユーザーアカウントでの操作には OAuth 1.0a の認証が必要です。
-#
-# 重要な注意点:
-# 認証チェックをスキップするということは、OAuth 1.0a の認証情報が有効であることを確認せずに処理を進めるということです。
-# もし OAuth 1.0a の認証情報が無効になっている場合、create_tweet メソッドはエラーを返す可能性があります。
-# レート制限が緩和されたら、必ず認証チェックを再度有効化して、OAuth 1.0a の認証情報が有効であることを確認するようにしてください。
 
 # コマンドライン引数から日付を取得
 if len(sys.argv) < 2:
