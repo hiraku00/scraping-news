@@ -122,7 +122,15 @@ programs = split_by_program(text)
 
 # 分割が必要なプログラムがあるかどうかを判定
 needs_split = False
-for program in programs:
+
+# 分割前の文字数と内容を出力
+print("--- 分割前のテキスト ---")
+for i, program in enumerate(programs):
+    length = count_tweet_length(program)
+    print(program)
+    print(f"文字数: {length}")
+    print("-" * 20)
+
     if count_tweet_length(program) > 230:
         needs_split = True
         break
@@ -158,12 +166,6 @@ if needs_split:
                 if i < len(new_programs) - 1:  # 最後の要素以外に改行を挿入
                     f.write("\n")  # 分割単位の間に空行を挿入
 
-                # 分割された内容とその文字数をコンソールに表示
-                length = count_tweet_length(item)
-                print(item)
-                print(f"文字数: {length}")
-                print("-" * 20)
-
         print(f"分割されたツイートは {file_path} に保存しました。")
 
     except Exception as e:
@@ -176,6 +178,15 @@ if needs_split:
         except Exception as e:
             print(f"バックアップファイルの復元中にエラーが発生しました: {e}")
         sys.exit(1)
+
+    # 分割後の文字数と内容を出力
+    print("--- 分割後のテキスト ---")
+    for item in new_programs:
+        length = count_tweet_length(item)
+        print(item)
+        print(f"文字数: {length}")
+        print("-" * 20)
+
 else:
     # 分割が必要ない場合
     print("分割は不要でした。ファイルは変更されません。")

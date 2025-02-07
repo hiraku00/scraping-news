@@ -40,7 +40,7 @@ def split_program(text, max_length):
 
             # 番組名を追加
             if not current_tweet:
-              current_tweet = program_name + '\n'
+                current_tweet = program_name + '\n'
 
             #結合したものが制限以下なら
             if count_tweet_length(current_tweet + combined) <= max_length:
@@ -108,7 +108,6 @@ try:
 except Exception as e:
     print(f"ファイル読み込みエラー: {e}")
     sys.exit(1)
-
 
 # 実行例
 result = split_program(text,max_length=230)
