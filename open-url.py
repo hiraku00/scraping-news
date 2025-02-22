@@ -4,6 +4,7 @@ import webbrowser
 import re
 import sys
 import logging
+import time
 
 # ロガーの設定
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -116,6 +117,7 @@ def open_urls_from_config(config_programs: dict, program_name: str, output_urls:
         for url in output_urls:
             logger.info(f"{url} を開きます")
             webbrowser.open(url)
+            time.sleep(0.2)
     else:
         logger.info(f"出力ファイルにURLが見つかりませんでした")
 

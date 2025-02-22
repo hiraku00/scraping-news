@@ -133,7 +133,7 @@ def get_nhk_formatted_episode_info(driver: webdriver.Chrome, program_title: str,
         episode_title = target_element.text.strip().encode('utf-8', 'ignore').decode('utf-8', 'replace')
 
         if program_title == "BSスペシャル":
-            program_time = f"（{channel} 22:45-23:35）"
+            program_time = f"({channel} 22:45-23:35)"
             final_url = driver.current_url
             formatted_output = f"●{program_title}{program_time}\n"
             formatted_output += f"・{episode_title}\n"
@@ -226,7 +226,7 @@ def get_nhk_info_formatted(program_title: str, program_info: dict, target_date: 
 def _extract_program_time(driver: webdriver.Chrome, program_title: str, episode_url: str, channel: str, max_retries: int = 3, retry_interval: int = 1) -> str:
     """番組詳細ページから放送時間を抽出する"""
     if program_title == "国際報道 2025":
-        return f"（{channel} 22:00-22:45）"
+        return f"({channel} 22:00-22:45)"
 
     for retry in range(max_retries):
         try:
@@ -238,7 +238,7 @@ def _extract_program_time(driver: webdriver.Chrome, program_title: str, episode_
             if start_time and end_time:
                 start_time_24h = _convert_to_24h(start_ampm, start_time)
                 end_time_24h = _convert_to_24h(end_ampm, end_time)
-                return f"（{channel} {start_time_24h}-{end_time_24h}）"
+                return f"({channel} {start_time_24h}-{end_time_24h})"
             else:
                 logger.warning(f"時間の取得に失敗しました。取得した文字列: {time_text} - {program_title}, {episode_url}")
                 return "（放送時間取得失敗）"
@@ -313,8 +313,8 @@ def format_date(target_date: str) -> str:
 def format_program_time(program_name: str, weekday: int, default_time: str) -> str:
     """番組時間をフォーマットする"""
     if program_name.startswith("WBS"):
-        return "（テレ東 22:00~22:58）" if weekday < 4 else "（テレ東 23:00~23:58）"
-    return f"（テレ東 {default_time}）"
+        return "(テレ東 22:00~22:58)" if weekday < 4 else "(テレ東 23:00~23:58)"
+    return f"(テレ東 {default_time})"
 
 def extract_tvtokyo_episode_urls(driver: webdriver.Chrome, target_url: str, formatted_date: str, program_name: str) -> list[str]:
     """テレビ東京のエピソードURLを抽出する"""
