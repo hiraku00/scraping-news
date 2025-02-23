@@ -3,10 +3,10 @@ import os
 import time
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
-import sys  # sys モジュールをインポート
-import pytz  # pip install pytz
-import re # 正規表現
-import json # JSON 処理のため
+import sys
+import pytz
+import re
+import json
 
 # API を使用するかダミーデータを使用するか (API 制限を回避するため)
 USE_API = True  # API を使用する場合は True に変更
@@ -36,7 +36,7 @@ def to_utc_isoformat(jst_datetime):
 
 def search_tweets(keyword, target_date, user=None, count=10):
     """
-    Twitter API v2を使ってツイートを検索し、整形されたテキストを返します。
+    Twitter API v2を使ってツイートを検索し、整形前のツイートデータを返します。
     """
 
     if USE_API: # API を使用する場合
@@ -47,9 +47,13 @@ def search_tweets(keyword, target_date, user=None, count=10):
             if user:
                 query += f" from:{user}"
 
-            # 日本時間の日付と時刻を作成
-            jst_datetime_start = to_jst_datetime(target_date)
-            jst_datetime_end = to_jst_datetime(target_date) + timedelta(days=1, microseconds=-1) # 23:59:59.999
+            # 検索対象日を放送日の前日に設定
+            jst_datetime_target = to_jst_datetime(target_date) - timedelta(days=1)
+
+            # 日本時間の日付と時刻を作成 (検索期間は前日の00:00:00 から 23:59:59)
+            jst_datetime_start = jst_datetime_target.replace(hour=0, minute=0, second=0, microsecond=0)
+            jst_datetime_end = jst_datetime_target.replace(hour=23, minute=59, second=59, microsecond=999999)
+
 
             # UTCに変換してISOフォーマットにする
             start_time = to_utc_isoformat(jst_datetime_start)
@@ -101,38 +105,23 @@ def search_tweets(keyword, target_date, user=None, count=10):
         dummy_json_data = """
         [
             {
-                "created_at": "2025-02-19 10:03:30+00:00",
-                "text": "NHK BS 18日(火) 午後10:45\\nＢＳ世界のドキュメンタリー「ナイス・レディーズ　ウクライナ　私たちの人生」\\nhttps://t.co/CYDKGbaIUK",
+                "created_at": "2025-02-11 10:03:30+00:00",
+                "text": "NHK BS 14日(金) 午前0:45 (13日深夜)\\nＢＳ世界のドキュメンタリー「カラーでよみがえるアメリカ　１９６０年代」\\nhttps://t.co/EBrcrtGW6V",
                 "author_id": 3022192682
             },
             {
-                "created_at": "2025-02-19 10:03:30+00:00",
-                "text": "NHK BS 18日(火) 午前9:25\\nＢＳ世界のドキュメンタリー選「アウシュビッツ　女たちの“サボタージュ”」\\nhttps://t.co/9cR5AREinr",
+                "created_at": "2025-02-11 10:03:30+00:00",
+                "text": "NHK BS 13日(木) 午前1:35 (12日深夜)\\nＢＳ世界のドキュメンタリー「カラーでよみがえるアメリカ　１９５０年代」\\nhttps://t.co/EBrcrtGW6V",
                 "author_id": 3022192682
             },
             {
-                "created_at": "2025-02-19 10:03:30+00:00",
-                "text": "NHK BS 19日(水) 午後10:45\\nＢＳ世界のドキュメンタリー▽マルコムＸ　暗殺の真相～アメリカ社会に挑んだ男～\\nhttps://t.co/iOJ03NrVMq",
+                "created_at": "2025-02-11 10:03:30+00:00",
+                "text": "NHK BS 12日(水) 午後10:45\\nＢＳ世界のドキュメンタリー　クィアな人生の再出発　ボリウッド式カミングアウト\\nhttps://www.nhk.jp/p/wdoc/ts/88Z7X45XZY/episode/te/GL6G38NLMM/",
                 "author_id": 3022192682
             },
             {
-                "created_at": "2025-02-19 10:03:30+00:00",
-                "text": "NHK BS 19日(水) 午前9:25\\nＢＳ世界のドキュメンタリー　選「ドイツの内なる脅威　躍進する“極右”政党」\\nhttps://t.co/EBrcrtGW6V",
-                "author_id": 3022192682
-            },
-            {
-                "created_at": "2025-02-19 10:03:30+00:00",
-                "text": "NHK BS 19日(水) 午前0:25\\nＢＳ世界のドキュメンタリー　選「ドイツの内なる脅威　躍進する“極右”政党」\\nhttps://t.co/EBrcrtGW6V",
-                "author_id": 3022192682
-            },
-             {
-                "created_at": "2025-02-20 10:03:30+00:00",
-                "text": "NHK BS 20日(木) 午後11:00\\nＢＳ世界のドキュメンタリー「ナイス・レディーズ　ウクライナ　私たちの「人生」」\\nhttps://t.co/CYDKGbaIUK",
-                "author_id": 3022192682
-            },
-             {
-                "created_at": "2025-02-20 10:03:30+00:00",
-                "text": "NHK BS 20日(木) 午後11:00\\nＢＳ世界のドキュメンタリー「マルコムＸ　「暗殺」の真相～アメリカ社会に挑んだ男～」\\nhttps://t.co/iOJ03NrVMq",
+                "created_at": "2025-02-11 10:03:30+00:00",
+                "text": "NHK BS 12日(水) 午前9:25\\nＢＳ世界のドキュメンタリー　選「モダン・タイムス　チャップリンの声なき抵抗」\\nhttps://t.co/EBrcrtGW6V",
                 "author_id": 3022192682
             }
         ]
@@ -147,23 +136,28 @@ def format_tweet_data(tweet_data):
 
     for tweet in tweet_data:
         text = tweet["text"]
-        print(f"text: {text}")  # デバッグ: 元のツイートテキストを表示
         lines = text.splitlines()  # テキストを改行で分割
         time_info = ""
         program_info = ""
         url = ""  # URLを抽出するための変数
+        add_24_hour = False # フラグを追加
 
         # 1行目から番組名と時刻情報を抽出
         if len(lines) > 0:
             first_line = lines[0]
             parts = first_line.split()
-            print(f"first_line: {first_line}")  # デバッグ: 1行目の内容を表示
-            print(f"parts: {parts}")  # デバッグ: 分割された要素を表示
 
             if len(parts) > 3 and parts[0] == "NHK" and parts[1] == "BS":
                 try:
                     time_str = parts[3]  # 時刻情報だけ取得
-                    print(f"time_str: {time_str}")  # デバッグ: 時刻情報の文字列を表示
+                    date_str = parts[2] # 日付部分を取得
+
+                    # ★★★ 修正: (深夜)表記の検出を正規表現による部分一致に変更
+                    if re.search(r"\(.+深夜\)", first_line): # 正規表現で (任意の文字1文字以上 + 深夜) を検索
+                        add_24_hour = True # フラグをTrueに設定
+                        print(f"デバッグ: (深夜)表記を検出(正規表現)。add_24_hour = {add_24_hour}") # ★デバッグ出力1
+                    else:
+                        print(f"デバッグ: (深夜)表記を検出されず(正規表現)。add_24_hour = {add_24_hour}") # ★デバッグ出力1-2
 
                     # 午前/午後を判定
                     if "午後" in time_str:
@@ -178,19 +172,29 @@ def format_tweet_data(tweet_data):
                     if len(time_parts) == 2:
                         hour = int(time_parts[0])
                         minute = int(time_parts[1])
+                        print(f"デバッグ: 抽出された時刻 hour = {hour}, minute = {minute}, ampm = {ampm}") # ★デバッグ出力2
 
-                        # 午後なら12時間加算
-                        if ampm == "午後" and hour != 12:
+                        # 深夜フラグがTrueの場合、24時間加算
+                        if add_24_hour:
+                            hour += 24
+                            print(f"デバッグ: 24時間加算実行。hour = {hour}") # ★デバッグ出力3
+
+                        # 午後なら12時間加算 (深夜加算後に行う)
+                        if ampm == "午後" and hour < 24: # 深夜加算された場合は24時以降になるので、ここでは加算しない
                             hour += 12
                         elif ampm == "午前" and hour == 12:
                             hour = 0 #午前0時は0時と表示するため
 
-                        time_info = f"{hour:02}:{minute:02}"
+                        # ★★★ さらに修正:  add_24_hour フラグがTrueの場合は、24時間表記でフォーマット
+                        if add_24_hour:
+                            time_info = f"{hour:02d}:{minute:02d}" # 24時間表記でフォーマット
+                        else:
+                            time_info = f"{hour:02}:{minute:02}" # 既存の処理 (念のため残す)
+                        print(f"デバッグ: time_info = {time_info}") # ★デバッグ出力4
                     else:
                         time_info = "時刻情報の抽出に失敗"
                 except ValueError as e:
                     time_info = "時刻情報の抽出に失敗"
-                    print(f"Error extracting time: {e}")  # デバッグ: エラー内容を表示
 
         program_info = f"●BS世界のドキュメンタリー（NHK BS {time_info}-）"
 
@@ -204,7 +208,7 @@ def format_tweet_data(tweet_data):
         # URLの抽出 (最終行にあると仮定)
         if len(lines) > 0:
             last_line = lines[-1]
-            if last_line.startswith("https://t.co/"):  # URLの形式を確認
+            if last_line.startswith("https://"):  # URLの形式を確認
                 url = last_line
             else:
                 url = "URLの抽出に失敗"
@@ -215,7 +219,6 @@ def format_tweet_data(tweet_data):
     return formatted_results
 
 if __name__ == '__main__':
-    import sys
     if len(sys.argv) < 2:
         print("使用方法: python get-tweet.py YYYYMMDD")
         exit()
