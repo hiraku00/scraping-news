@@ -187,7 +187,7 @@ try:
     target_date_dt = datetime.strptime(date, '%Y%m%d')
     formatted_date = target_date_dt.strftime('%y/%m/%d')
     japanese_weekday = get_japanese_weekday(target_date_dt)
-    header_text = f"{formatted_date}({japanese_weekday})の各ニュースの特集など\n\n" #改行追加
+    header_text = f"{formatted_date}({japanese_weekday})のニュース・ドキュメンタリー番組など\n\n" #改行追加
 except ValueError:
     print("日付の形式が正しくありません。YYYYMMDDの形式で入力してください。")
     sys.exit(1)

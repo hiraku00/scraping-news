@@ -127,7 +127,7 @@ def process_program_block(block: str, nhk_programs: dict, tvtokyo_programs: dict
     lines = block.strip().split('\n')
     if lines:
         program_info = lines[0].strip()
-        program_name = program_info.split("（")[0]
+        program_name = program_info.split("(")[0]
 
         block_urls = []
         for line in lines:
