@@ -43,17 +43,17 @@ def search_tweets(keyword, target_date, user=None, count=10):
         try:
             client = tweepy.Client(bearer_token=BEARER_TOKEN)
 
-            query = keyword
-            if user:
-                query += f" from:{user}"
+            # OR検索のクエリを作成
+            # query = f"({keyword}) from:{user}"
+            query = f"from:{user} ({keyword})"
 
             # 検索対象日を放送日の前日に設定
             jst_datetime_target = to_jst_datetime(target_date) - timedelta(days=1)
 
             # 日本時間の日付と時刻を作成 (検索期間は前日の00:00:00 から 23:59:59)
+            #                                        ↑前日に Tweet されているため
             jst_datetime_start = jst_datetime_target.replace(hour=0, minute=0, second=0, microsecond=0)
             jst_datetime_end = jst_datetime_target.replace(hour=23, minute=59, second=59, microsecond=999999)
-
 
             # UTCに変換してISOフォーマットにする
             start_time = to_utc_isoformat(jst_datetime_start)
@@ -91,7 +91,7 @@ def search_tweets(keyword, target_date, user=None, count=10):
                 for i in range(wait_seconds, 0, -1):  # カウントダウン
                     print(f"\rリセットまで残り: {i}秒", end="", flush=True)  # 上書き表示
                     time.sleep(1)
-                print("\n待機完了。リトライします...")  # 改行を追加
+                print("\n待機完了。リトライ...")  # 改行を追加
 
                 return search_tweets(keyword, target_date, user, count)  # 再帰的にリトライ
             else:
@@ -123,7 +123,13 @@ def search_tweets(keyword, target_date, user=None, count=10):
                 "created_at": "2025-02-11 10:03:30+00:00",
                 "text": "NHK BS 12日(水) 午前9:25\\nＢＳ世界のドキュメンタリー　選「モダン・タイムス　チャップリンの声なき抵抗」\\nhttps://t.co/EBrcrtGW6V",
                 "author_id": 3022192682
+            },
+            {
+                "created_at": "2024-02-24 10:03:30+00:00",
+                "text": "NHK 総合 25日(火) 午後11:35\\nアナザーストーリーズ「“怪物”に出会った日～井上尚弥×ノニト・ドネア～」\\nhttps://t.co/xxxxxxxxxxx",
+                "author_id": 3022192682
             }
+
         ]
         """
         return json.loads(dummy_json_data) # JSONをパースしたPythonオブジェクトを返す
@@ -147,17 +153,17 @@ def format_tweet_data(tweet_data):
             first_line = lines[0]
             parts = first_line.split()
 
-            if len(parts) > 3 and parts[0] == "NHK" and parts[1] == "BS":
+            # 放送局と日付の基本部分を確認
+            if len(parts) > 3 and parts[0] == "NHK" and parts[1] == "BS": #ここを修正
                 try:
                     time_str = parts[3]  # 時刻情報だけ取得
-                    date_str = parts[2] # 日付部分を取得
+                    date_str = parts[2]  # 日付部分を取得
 
-                    # ★★★ 修正: (深夜)表記の検出を正規表現による部分一致に変更
-                    if re.search(r"\(.+深夜\)", first_line): # 正規表現で (任意の文字1文字以上 + 深夜) を検索
-                        add_24_hour = True # フラグをTrueに設定
-                        print(f"デバッグ: (深夜)表記を検出(正規表現)。add_24_hour = {add_24_hour}") # ★デバッグ出力1
+                    if re.search(r"\(.+深夜\)", first_line):
+                        add_24_hour = True
+                        print(f"デバッグ: (深夜)表記を検出(正規表現)。add_24_hour = {add_24_hour}")
                     else:
-                        print(f"デバッグ: (深夜)表記を検出されず(正規表現)。add_24_hour = {add_24_hour}") # ★デバッグ出力1-2
+                        print(f"デバッグ: (深夜)表記を検出されず(正規表現)。add_24_hour = {add_24_hour}")
 
                     # 午前/午後を判定
                     if "午後" in time_str:
@@ -167,54 +173,68 @@ def format_tweet_data(tweet_data):
                     else:
                         ampm = None
 
-                    # 時刻を分割
-                    time_parts = re.findall(r'\d+', time_str)  # 数字だけを抽出
+                    time_parts = re.findall(r'\d+', time_str)
                     if len(time_parts) == 2:
                         hour = int(time_parts[0])
                         minute = int(time_parts[1])
-                        print(f"デバッグ: 抽出された時刻 hour = {hour}, minute = {minute}, ampm = {ampm}") # ★デバッグ出力2
+                        print(f"デバッグ: 抽出された時刻 hour = {hour}, minute = {minute}, ampm = {ampm}")
 
-                        # 深夜フラグがTrueの場合、24時間加算
                         if add_24_hour:
                             hour += 24
-                            print(f"デバッグ: 24時間加算実行。hour = {hour}") # ★デバッグ出力3
+                            print(f"デバッグ: 24時間加算実行。hour = {hour}")
 
-                        # 午後なら12時間加算 (深夜加算後に行う)
-                        if ampm == "午後" and hour < 24: # 深夜加算された場合は24時以降になるので、ここでは加算しない
+                        if ampm == "午後" and hour < 24:  # 12時間制の調整
                             hour += 12
                         elif ampm == "午前" and hour == 12:
-                            hour = 0 #午前0時は0時と表示するため
+                            hour = 0
 
-                        # ★★★ さらに修正:  add_24_hour フラグがTrueの場合は、24時間表記でフォーマット
                         if add_24_hour:
-                            time_info = f"{hour:02d}:{minute:02d}" # 24時間表記でフォーマット
+                            time_info = f"{hour:02d}:{minute:02d}"
                         else:
-                            time_info = f"{hour:02}:{minute:02}" # 既存の処理 (念のため残す)
-                        print(f"デバッグ: time_info = {time_info}") # ★デバッグ出力4
+                            time_info = f"{hour:02}:{minute:02}"
+                        print(f"デバッグ: time_info = {time_info}")
                     else:
                         time_info = "時刻情報の抽出に失敗"
                 except ValueError as e:
                     time_info = "時刻情報の抽出に失敗"
 
-        program_info = f"●BS世界のドキュメンタリー（NHK BS {time_info}-）"
+                # 番組情報のフォーマット
+                if "ＢＳ世界のドキュメンタリー" in text:
+                    program_info = f"●BS世界のドキュメンタリー（NHK BS {time_info}〜）"
+                elif "アナザーストーリーズ" in text:
+                    program_info = f"●アナザーストーリーズ（NHK BS {time_info}〜）" #ここを修正
+                else:
+                    program_info = "番組情報の抽出に失敗"
+
+
 
         #不要な文字列を削除
         content = ""
         if len(lines) > 1:
             content = lines[1]
-            content = re.sub(r'ＢＳ世界のドキュメンタリー[▽　選「]*', '', content).strip() # 既存の処理
-            content = re.sub(r'」$', '', content).strip() # ★ 行末の「」を削除する処理を追加
+
+            # ＢＳ世界のドキュメンタリーの場合
+            if "ＢＳ世界のドキュメンタリー" in text:
+                content = re.sub(r'ＢＳ世界のドキュメンタリー[▽　選「]*', '', content).strip()
+                content = re.sub(r'」$', '', content).strip()
+
+            # アナザーストーリーズの場合
+            elif "アナザーストーリーズ" in text:
+                content = re.sub(r'アナザーストーリーズ[▽　選「]*', '', content).strip()
+                content = re.sub(r'」$', '', content).strip()
+
+
 
         # URLの抽出 (最終行にあると仮定)
         if len(lines) > 0:
             last_line = lines[-1]
-            if last_line.startswith("https://"):  # URLの形式を確認
+            if last_line.startswith("https://"):
                 url = last_line
             else:
                 url = "URLの抽出に失敗"
 
         formatted_text = f"{program_info}\n{content}\n{url}\n\n"
-        formatted_results += formatted_text  # 結果を連結
+        formatted_results += formatted_text
 
     return formatted_results
 
@@ -224,17 +244,18 @@ if __name__ == '__main__':
         exit()
     target_date = sys.argv[1]
 
-    keyword = "ＢＳ世界のドキュメンタリー"
+    # OR検索用のキーワードをカッコで囲み、| で区切る
+    keyword = "アナザーストーリーズ OR ＢＳ世界のドキュメンタリー"
     user = "nhk_docudocu"
     count = 10
 
     tweets = search_tweets(keyword, target_date, user, count) # APIリクエスト or ダミーデータ取得
 
-    if tweets: # データが存在する場合
-        formatted_text = format_tweet_data(tweets) #ツイートを整形
+    if tweets:
+        formatted_text = format_tweet_data(tweets)
         # ファイル名を作成
         now = datetime.now()
-        filename = f"output/{target_date}_sekai-docu.txt"
+        filename = f"output/{target_date}_tweet_search.txt"  # ファイル名を変更
 
         # outputディレクトリが存在しなければ作成
         if not os.path.exists("output"):
@@ -242,7 +263,7 @@ if __name__ == '__main__':
 
         # テキストファイルに書き出し
         try:
-            with open(filename, "w", encoding="utf-8") as f:  # utf-8でエンコード
+            with open(filename, "w", encoding="utf-8") as f:
                 f.write(formatted_text)
             print(f"テキストファイルを {filename} に出力しました。")
 
