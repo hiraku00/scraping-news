@@ -141,6 +141,15 @@ def get_nhk_formatted_episode_info(driver: webdriver.Chrome, program_title: str,
             logger.info(f"{program_title} の詳細情報を取得しました")
             return formatted_output
 
+        if program_title == "アナザーストーリーズ":
+            program_time = f"({channel} 放送時間未定)"
+            final_url = driver.current_url
+            formatted_output = f"●{program_title}{program_time}\n"
+            formatted_output += f"・{episode_title}\n"
+            formatted_output += f"{final_url}\n"
+            logger.info(f"{program_title} の詳細情報を取得しました")
+            return formatted_output
+
         nhk_plus_url = None
         try:
             span_element = WebDriverWait(driver, DEFAULT_TIMEOUT).until(
