@@ -200,9 +200,9 @@ def format_tweet_data(tweet_data):
 
                 # 番組情報のフォーマット
                 if "ＢＳ世界のドキュメンタリー" in text:
-                    program_info = f"●BS世界のドキュメンタリー（NHK BS {time_info}〜）"
+                    program_info = f"●BS世界のドキュメンタリー(NHK BS {time_info}~)"
                 elif "アナザーストーリーズ" in text:
-                    program_info = f"●アナザーストーリーズ（NHK BS {time_info}〜）" #ここを修正
+                    program_info = f"●アナザーストーリーズ(NHK BS {time_info}~)" #ここを修正
                 else:
                     program_info = "番組情報の抽出に失敗"
 

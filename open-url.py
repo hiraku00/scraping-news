@@ -141,6 +141,15 @@ def process_program_block(block: str, nhk_programs: dict, tvtokyo_programs: dict
             open_urls_from_config(tvtokyo_programs, program_name, block_urls)
         else:
             logger.warning(f"番組 {program_name} は設定ファイルに存在しません")
+            # 設定ファイルに存在しない場合、block_urlsが空でない場合にのみURLを開く
+            if block_urls:
+                logger.info(f"出力ファイルのURL ({program_name}):")
+                for url in block_urls:
+                    logger.info(f"{url} を開きます")
+                    webbrowser.open(url)
+                    time.sleep(0.2)
+            else:
+                logger.info(f"出力ファイルに {program_name} のURLが見つかりませんでした")
 
 def main():
     """メイン関数"""
