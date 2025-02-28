@@ -107,6 +107,8 @@ def open_urls_from_config(config_programs: dict, program_name: str, output_urls:
         else:
             selected_config_url = config_urls[0]['url']
             logger.info(f"設定ファイル内のURL ({program_name}): {selected_config_url} を開きます")
+            # webbrowser.open() の直前でログ出力
+            logger.debug(f"webbrowser.open() を呼び出し: {selected_config_url}")
             webbrowser.open(selected_config_url)
 
     else:
@@ -116,11 +118,12 @@ def open_urls_from_config(config_programs: dict, program_name: str, output_urls:
         logger.info(f"出力ファイルのURL ({program_name}):")
         for url in output_urls:
             logger.info(f"{url} を開きます")
+            # webbrowser.open() の直前でログ出力
+            logger.debug(f"webbrowser.open() を呼び出し: {url}")
             webbrowser.open(url)
-            time.sleep(0.2)
+            time.sleep(2)
     else:
         logger.info(f"出力ファイルにURLが見つかりませんでした")
-
 
 def process_program_block(block: str, nhk_programs: dict, tvtokyo_programs: dict) -> None:
     """番組ブロックを処理する"""
@@ -147,7 +150,7 @@ def process_program_block(block: str, nhk_programs: dict, tvtokyo_programs: dict
                 for url in block_urls:
                     logger.info(f"{url} を開きます")
                     webbrowser.open(url)
-                    time.sleep(0.2)
+                    time.sleep(2)
             else:
                 logger.info(f"出力ファイルに {program_name} のURLが見つかりませんでした")
 
