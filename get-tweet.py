@@ -154,7 +154,7 @@ def format_tweet_data(tweet_data):
             parts = first_line.split()
 
             # 放送局と日付の基本部分を確認
-            if len(parts) > 3 and parts[0] == "NHK" and parts[1] == "BS": #ここを修正
+            if len(parts) > 3 and parts[0] == "NHK" and parts[1] == "BS":
                 try:
                     time_str = parts[3]  # 時刻情報だけ取得
                     date_str = parts[2]  # 日付部分を取得
@@ -200,13 +200,11 @@ def format_tweet_data(tweet_data):
 
                 # 番組情報のフォーマット
                 if "ＢＳ世界のドキュメンタリー" in text:
-                    program_info = f"●BS世界のドキュメンタリー(NHK BS {time_info}~)"
+                    program_info = f"●BS世界のドキュメンタリー(NHK BS {time_info}-)"
                 elif "アナザーストーリーズ" in text:
-                    program_info = f"●アナザーストーリーズ(NHK BS {time_info}~)" #ここを修正
+                    program_info = f"●アナザーストーリーズ(NHK BS {time_info}-)"
                 else:
                     program_info = "番組情報の抽出に失敗"
-
-
 
         #不要な文字列を削除
         content = ""

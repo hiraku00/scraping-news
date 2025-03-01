@@ -33,11 +33,15 @@ def load_config(config_path: str) -> configparser.ConfigParser:
 def setup_logger() -> logging.Logger:
     """ロガーを設定する"""
     logger = logging.getLogger(__name__)
-    logger.setLevel(logging.INFO)
+    logger.setLevel(logging.INFO)  # INFOレベル以上のログを処理
     console_handler = logging.StreamHandler()
     formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
     console_handler.setFormatter(formatter)
     logger.addHandler(console_handler)
+
+    # ルートロガーのレベルをERRORに設定（追加）
+    logging.getLogger().setLevel(logging.ERROR)
+
     logger.info("ロガーを設定しました。")
     return logger
 
@@ -49,6 +53,7 @@ def create_driver() -> webdriver.Chrome:
     options.add_argument("--disable-gpu")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--log-level=ERROR")  # SeleniumのログレベルをERRORに設定
     try:
         driver = webdriver.Chrome(options=options)
         logger.info("Chrome WebDriverを作成しました。")
@@ -192,8 +197,12 @@ def get_nhk_formatted_episode_info(driver: webdriver.Chrome, program_title: str,
                     logger.error(f"iframeからIDを抽出できませんでした: {program_title}, {episode_url} - {e}")
                     return None
             except Exception as iframe_e:
-                logger.error(f"gc-images.is-medium.eyecatch も iframe も見つかりませんでした: {program_title}, {episode_url} - {e} - {iframe_e}")
-                return None
+                logger.error(f"gc-images.is-medium.eyecatch も iframe も見つかりませんでした: {program_title}, {episode_url} - {str(iframe_e)}") # 例外メッセージのみを渡す
+                program_time = _extract_program_time(driver, program_title, episode_url, channel)
+                formatted_output = f"●{program_title}{program_time}\n"
+                formatted_output += f"・{episode_title}\n"
+                formatted_output += f"{episode_url}\n"
+                return formatted_output
 
     except Exception as e:
         logger.error(f"エラーが発生しました: {e} - {program_title}, {episode_url}")
