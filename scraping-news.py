@@ -12,7 +12,7 @@ import multiprocessing
 import logging
 import configparser
 import re
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from selenium.common.exceptions import TimeoutException, NoSuchElementException, StaleElementReferenceException
 
 # デフォルトのタイムアウト時間
 DEFAULT_TIMEOUT = 10
@@ -286,21 +286,25 @@ def _convert_to_24h(ampm: str | None, time_str: str) -> str:
 
 # テレビ東京スクレイピング関数群
 def parse_tvtokyo_programs_config(config: configparser.ConfigParser) -> dict:
-    """テレビ東京番組設定ファイルを解析する"""
+    """テレビ東京番組設定ファイルを解析する。WBSを特別扱い"""
     programs = {}
-    wbs_programs = []
-    other_programs = {}
+    wbs_urls = []  # WBSのURLを格納するリスト
+
     for section in config.sections():
         if section.startswith('program_'):
             try:
-                program_name = config.get(section, 'name')
-                program_url = config.get(section, 'url')
-                program_time = config.get(section, 'time')
-                program_config = {"url": program_url.strip(), "time": program_time.strip(), "name": program_name.strip()}
+                program_name = config.get(section, 'name').strip()
+                program_url = config.get(section, 'url').strip()
+                program_time = config.get(section, 'time').strip()
+
                 if program_name == "WBS":
-                    wbs_programs.append(program_config)
+                    wbs_urls.append(program_url)  # WBSのURLをリストに追加
                 else:
-                    other_programs[program_name.strip()] = program_config
+                    programs[program_name] = {
+                        "url": program_url,
+                        "time": program_time,
+                        "name": program_name
+                    }
                 logger.debug(f"テレビ東京番組設定を解析しました: {program_name} - {program_url}")
             except configparser.NoOptionError as e:
                 logger.error(f"設定ファイルにエラーがあります: {e}, section: {section}")
@@ -309,9 +313,14 @@ def parse_tvtokyo_programs_config(config: configparser.ConfigParser) -> dict:
                 logger.error(f"テレビ東京番組設定の解析中にエラーが発生しました: {e}, section: {section}")
                 continue
 
-    if wbs_programs:
-        programs["WBS"] = wbs_programs
-    programs.update(other_programs)
+    # WBSの設定をprogramsに追加（キーは "WBS" で固定）
+    if wbs_urls:
+        programs["WBS"] = {
+            "urls": wbs_urls,  # URLのリスト
+            "time": "22:00~22:58",  # WBSの放送時間（曜日によって変わるので、後で調整）
+            "name": "WBS"
+        }
+
     logger.info("テレビ東京番組設定ファイルを解析しました。")
     return programs
 
@@ -325,42 +334,58 @@ def format_program_time(program_name: str, weekday: int, default_time: str) -> s
         return "(テレ東 22:00~22:58)" if weekday < 4 else "(テレ東 23:00~23:58)"
     return f"(テレ東 {default_time})"
 
-def extract_tvtokyo_episode_urls(driver: webdriver.Chrome, target_url: str, formatted_date: str, program_name: str) -> list[str]:
-    """テレビ東京のエピソードURLを抽出する"""
-    try:
-        driver.get(target_url)
-        WebDriverWait(driver, DEFAULT_TIMEOUT).until(CustomExpectedConditions.page_is_ready())
-        episodes = WebDriverWait(driver, DEFAULT_TIMEOUT).until(
-            EC.presence_of_all_elements_located((By.CSS_SELECTOR, 'div[id^="News_Detail__VideoItem__"]'))
-        )
-        urls = []
-        today = datetime.now().date()
-        yesterday = today - timedelta(days=1)
-        formatted_today = format_date(today.strftime('%Y%m%d'))
-        formatted_yesterday = format_date(yesterday.strftime('%Y%m%d'))
+def extract_tvtokyo_episode_urls(driver: webdriver.Chrome, target_urls: list[str], formatted_date: str, program_name: str) -> list[str]:
+    """
+    テレビ東京のエピソードURLを抽出する。
+    target_urls をリストとして受け取り、各URLに対して処理を行う。
+    """
+    all_urls = []
+    for target_url in target_urls:
+        try:
+            driver.get(target_url)
+            WebDriverWait(driver, DEFAULT_TIMEOUT).until(CustomExpectedConditions.page_is_ready())
 
-        for episode in episodes:
-            try:
-                date_element = episode.find_element(By.CSS_SELECTOR, 'span.sc-c564813-0.iCkNIF[role="presentation"]')
-                date_text = date_element.text.strip()
+            # 要素の存在確認（find_elements を使用）
+            episode_elements = driver.find_elements(By.CSS_SELECTOR, 'div[id^="News_Detail__VideoItem__"]')
+            if not episode_elements:
+                logger.warning(f"{program_name} のエピソード要素が見つかりませんでした - {target_url}")
+                continue  # 次のURLへ
 
-                if "今日" in date_text and formatted_today == formatted_date:
-                    link = episode.find_element(By.CSS_SELECTOR, 'a[href*="post_"]').get_attribute("href")
-                    urls.append(link)
-                elif "昨日" in date_text and formatted_yesterday == formatted_date:
-                    link = episode.find_element(By.CSS_SELECTOR, 'a[href*="post_"]').get_attribute("href")
-                    urls.append(link)
-                elif date_text == formatted_date:
-                    link = episode.find_element(By.CSS_SELECTOR, 'a[href*="post_"]').get_attribute("href")
-                    urls.append(link)
+            urls = []
+            today = datetime.now().date()
+            yesterday = today - timedelta(days=1)
+            formatted_today = format_date(today.strftime('%Y%m%d'))
+            formatted_yesterday = format_date(yesterday.strftime('%Y%m%d'))
 
-            except NoSuchElementException as e:
-                logger.error(f"エピソード解析中にエラー: {e} - {program_name}")
-        logger.debug(f"テレビ東京のエピソードURLを抽出しました: {program_name} - {urls}")
-        return urls
-    except Exception as e:
-        logger.error(f"URL取得エラー: {e} - {program_name}")
-        return []
+            for episode in episode_elements:
+                try:
+                    # 日付要素の存在確認
+                    date_elements = episode.find_elements(By.CSS_SELECTOR, 'span.sc-c564813-0.iCkNIF[role="presentation"]')
+                    if not date_elements:
+                        logger.debug(f"日付要素が見つかりませんでした - {program_name} - {target_url}")
+                        continue # 次のエピソードへ
+
+                    date_element = date_elements[0]
+                    date_text = date_element.text.strip()
+
+                    if "今日" in date_text and formatted_today == formatted_date:
+                        link = episode.find_element(By.CSS_SELECTOR, 'a[href*="post_"]').get_attribute("href")
+                        urls.append(link)
+                    elif "昨日" in date_text and formatted_yesterday == formatted_date:
+                        link = episode.find_element(By.CSS_SELECTOR, 'a[href*="post_"]').get_attribute("href")
+                        urls.append(link)
+                    elif date_text == formatted_date:
+                        link = episode.find_element(By.CSS_SELECTOR, 'a[href*="post_"]').get_attribute("href")
+                        urls.append(link)
+
+                except (NoSuchElementException, StaleElementReferenceException) as e:
+                    logger.error(f"エピソード解析中にエラー: {e} - {program_name} - {target_url}")
+                    # 必要に応じてリトライ処理などを追加
+            all_urls.extend(urls)
+        except Exception as e:
+            logger.error(f"URL取得エラー: {e} - {program_name} - {target_url}")
+    logger.debug(f"テレビ東京のエピソードURLを抽出しました: {program_name} - {all_urls}")
+    return all_urls
 
 def fetch_tvtokyo_episode_details(driver: webdriver.Chrome, episode_url: str, program_name: str) -> tuple[str | None, str | None]:
     """テレビ東京のエピソード詳細情報を取得する"""
@@ -377,49 +402,46 @@ def fetch_tvtokyo_episode_details(driver: webdriver.Chrome, episode_url: str, pr
         logger.error(f"エピソード詳細取得エラー: {e} - {program_name}, {episode_url}")
         return None, None
 
-def fetch_tvtokyo_program_details(program_configs: list[dict], target_date: str) -> str | None:
-    """テレビ東京の番組詳細情報を取得する"""
+def fetch_tvtokyo_program_details(program_config: dict, target_date: str) -> str | None:
+    """テレビ東京の番組詳細情報を取得する（WBSとそれ以外を区別）"""
     driver = create_driver()
     try:
         formatted_date = format_date(target_date)
-        wbs_info = []
-
         weekday = datetime.strptime(target_date, '%Y%m%d').weekday()
-        program_time = format_program_time(program_configs[0]['name'], weekday, program_configs[0]['time'])
+        program_time = format_program_time(program_config['name'], weekday, program_config['time'])
+        program_name = program_config['name']
 
-        for program_config in program_configs:
-            program_name = program_config['name']
-            list_url = program_config["url"]
+        logger.info(f"検索開始: {program_name}")
 
-            logger.info(f"検索開始: {program_name}")
+        if program_name == "WBS":
+            episode_urls = extract_tvtokyo_episode_urls(driver, program_config["urls"], formatted_date, program_name)
+        else:
+            episode_urls = extract_tvtokyo_episode_urls(driver, [program_config["url"]], formatted_date, program_name)
 
-            episode_urls = extract_tvtokyo_episode_urls(driver, list_url, formatted_date, program_name)
-            if not episode_urls:
-                logger.warning(f"{program_name}が見つかりませんでした - {list_url}")
-                continue
 
-            episode_details = [
-                fetch_tvtokyo_episode_details(driver, url, program_name) for url in episode_urls
-            ]
-
-            for title, url in episode_details:
-                if title and url:
-                    wbs_info.append((title, url))
-
-        if not wbs_info:
+        if not episode_urls:
+            logger.warning(f"{program_name} が見つかりませんでした")
             return None
 
-        formatted_output = f"●{program_configs[0]['name']}{program_time}\n"
-        for title, url in wbs_info:
-            formatted_output += f"・{title}\n{url}\n"
+        episode_details = [
+            fetch_tvtokyo_episode_details(driver, url, program_name) for url in episode_urls
+        ]
 
-        logger.info(f"{program_configs[0]['name']} の詳細情報を取得しました")
+        # 結果の整形
+        formatted_output = f"●{program_config['name']}{program_time}\n"
+        for title, url in episode_details:
+            if title and url:
+                formatted_output += f"・{title}\n{url}\n"
+
+        if formatted_output == f"●{program_config['name']}{program_time}\n":  # 詳細情報がない場合
+            return None
+
+        logger.info(f"{program_name} の詳細情報を取得しました")
         return formatted_output
 
     except Exception as e:
-        logger.error(f"番組情報取得中にエラー: {e} - {program_configs[0]['name']}")
+        logger.error(f"番組情報取得中にエラー: {e} - {program_name}")
         return None
-
     finally:
         driver.quit()
 
@@ -431,10 +453,7 @@ def fetch_program_info(args: tuple[str, str, dict, str]) -> str | None:
         if task_type == 'nhk':
             result = get_nhk_info_formatted(program_name, program_config, target_date)
         elif task_type == 'tvtokyo':
-            if program_name == 'WBS':
-                result = fetch_tvtokyo_program_details(program_config, target_date)
-            else:
-                result = fetch_tvtokyo_program_details([program_config], target_date)
+            result = fetch_tvtokyo_program_details(program_config, target_date)  # WBSもここで処理
         else:
             logger.error(f"不明なタスクタイプです: {task_type}")
             return None
@@ -473,7 +492,7 @@ def get_elapsed_time(start_time: float) -> float:
     end_time = time.time()
     return end_time - start_time
 
-def process_scraping(target_date: str) -> list[str]:
+def process_scraping(target_date: str) -> list[tuple[str, str, dict, str]]:
     """スクレイピング処理を行う"""
     nhk_programs = parse_nhk_programs_config(nhk_config)
     tvtokyo_programs = parse_tvtokyo_programs_config(tvtokyo_config)
@@ -524,7 +543,7 @@ def main():
                 processed_tasks += 1
 
                 elapsed_time = get_elapsed_time(start_time)
-                print(f"\r進捗: {processed_tasks}/{total_tasks}（経過時間：{get_elapsed_time(start_time):.0f}秒）\n", end="", flush=True)
+                print(f"\r進捗: {processed_tasks}/{total_tasks}（経過時間：{get_elapsed_time(start_time):.0f}秒）", end="", flush=True)
 
         logger.info(f"【後処理開始】結果を番組ブロックごとに分割中...（経過時間：{get_elapsed_time(start_time):.0f}秒）")
         blocks = []
