@@ -49,6 +49,7 @@ def search_tweets(keyword, target_date, user=None, count=10):
 
             # 検索対象日を放送日の前日に設定
             jst_datetime_target = to_jst_datetime(target_date) - timedelta(days=1)
+            print(f"検索対象日: {jst_datetime_target}")
 
             # 日本時間の日付と時刻を作成 (検索期間は前日の00:00:00 から 23:59:59)
             #                                        ↑前日に Tweet されているため
