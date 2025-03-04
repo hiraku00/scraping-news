@@ -29,7 +29,7 @@ if len(sys.argv) < 2:
 
 date = sys.argv[1]
 file_path = f"output/{date}.txt"
-backup_file_path = f"output/{date}_bk.txt"
+backup_file_path = f"output/{date}_before-split.txt"
 
 # 指定された日付のファイルを読み込む
 try:

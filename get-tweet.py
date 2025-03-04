@@ -222,8 +222,6 @@ def format_tweet_data(tweet_data):
                 content = re.sub(r'アナザーストーリーズ[▽　選「]*', '', content).strip()
                 content = re.sub(r'」$', '', content).strip()
 
-
-
         # URLの抽出 (最終行にあると仮定)
         if len(lines) > 0:
             last_line = lines[-1]
@@ -232,7 +230,7 @@ def format_tweet_data(tweet_data):
             else:
                 url = "URLの抽出に失敗"
 
-        formatted_text = f"{program_info}\n{content}\n{url}\n\n"
+        formatted_text = f"{program_info}\n・{content}\n{url}\n\n"
         formatted_results += formatted_text
 
     return formatted_results
@@ -244,7 +242,7 @@ if __name__ == '__main__':
     target_date = sys.argv[1]
 
     # OR検索用のキーワードをカッコで囲み、| で区切る
-    keyword = "アナザーストーリーズ OR ＢＳ世界のドキュメンタリー"
+    keyword = "アナザーストーリーズ OR ＢＳ世界のドキュメンタリー OR Ａｓｉａ　Ｉｎｓｉｇｈｔ or 英雄たちの選択"
     user = "nhk_docudocu"
     count = 10
 
@@ -254,7 +252,7 @@ if __name__ == '__main__':
         formatted_text = format_tweet_data(tweets)
         # ファイル名を作成
         now = datetime.now()
-        filename = f"output/{target_date}_tweet_search.txt"  # ファイル名を変更
+        filename = f"output/{target_date}_tweet.txt"  # ファイル名を変更
 
         # outputディレクトリが存在しなければ作成
         if not os.path.exists("output"):
