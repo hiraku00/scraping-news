@@ -7,6 +7,7 @@ import sys
 import pytz
 import re
 import json
+import unicodedata
 
 # API を使用するかダミーデータを使用するか (API 制限を回避するため)
 USE_API = True  # API を使用する場合は True に変更
@@ -199,15 +200,19 @@ def format_tweet_data(tweet_data):
                 except ValueError as e:
                     time_info = "時刻情報の抽出に失敗"
 
-                # 番組情報のフォーマット
+                # 番組情報のフォーマット（全角・半角両対応）
                 if "ＢＳ世界のドキュメンタリー" in text:
                     program_info = f"●BS世界のドキュメンタリー(NHK BS {time_info}-)"
                 elif "アナザーストーリーズ" in text:
                     program_info = f"●アナザーストーリーズ(NHK BS {time_info}-)"
+                elif re.search(r'Asia Insight|Ａｓｉａ　Ｉｎｓｉｇｈｔ', text):  # 全角・半角両対応
+                    program_info = f"●Asia Insight(NHK BS {time_info}-)"
+                elif "英雄たちの選択" in text:
+                    program_info = f"●英雄たちの選択(NHK BS {time_info}-)"
                 else:
                     program_info = "番組情報の抽出に失敗"
 
-        #不要な文字列を削除
+        #不要な文字列を削除（全角・半角両対応）
         content = ""
         if len(lines) > 1:
             content = lines[1]
@@ -221,6 +226,14 @@ def format_tweet_data(tweet_data):
             elif "アナザーストーリーズ" in text:
                 content = re.sub(r'アナザーストーリーズ[▽　選「]*', '', content).strip()
                 content = re.sub(r'」$', '', content).strip()
+
+            # Ａｓｉａ　Ｉｎｓｉｇｈｔの場合（全角・半角両対応）
+            elif re.search(r'Asia Insight|Ａｓｉａ　Ｉｎｓｉｇｈｔ', text):
+                content = re.sub(r'(Asia Insight|Ａｓｉａ　Ｉｎｓｉｇｈｔ)[▽　選「]*', '', content).strip() #全角半角対応
+
+            # 英雄たちの選択 の場合
+            elif "英雄たちの選択" in text:
+                content = re.sub(r'英雄たちの選択[▽　選「]*', '', content).strip()
 
         # URLの抽出 (最終行にあると仮定)
         if len(lines) > 0:
@@ -241,8 +254,8 @@ if __name__ == '__main__':
         exit()
     target_date = sys.argv[1]
 
-    # OR検索用のキーワードをカッコで囲み、| で区切る
-    keyword = "アナザーストーリーズ OR ＢＳ世界のドキュメンタリー OR Ａｓｉａ　Ｉｎｓｉｇｈｔ or 英雄たちの選択"
+    # OR検索用のキーワードをカッコで囲み、| で区切る  全角半角両対応
+    keyword = "アナザーストーリーズ OR ＢＳ世界のドキュメンタリー OR Asia Insight OR Ａｓｉａ　Ｉｎｓｉｇｈｔ OR 英雄たちの選択"
     user = "nhk_docudocu"
     count = 10
 
