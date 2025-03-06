@@ -6,6 +6,13 @@ import re
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
 
+# ロギング設定 (ファイル名、レベル、フォーマット)
+logging.basicConfig(
+    filename="tweet_log.txt",  # ログファイル名
+    level=logging.INFO,        # INFOレベル以上を記録
+    format="%(asctime)s - %(levelname)s - %(message)s" # ログのフォーマット
+)
+
 # 環境変数の読み込み
 load_dotenv()
 
@@ -152,34 +159,59 @@ except FileNotFoundError:
     print(f"エラー: {file_path} が見つかりません。")
     sys.exit(1)
 
-# ツイート投稿関数
+# ツイート投稿関数 (改善版)
 def post_tweet_with_retry(text, in_reply_to_tweet_id=None, max_retries=3, base_delay=10):
+    global rate_limit_remaining, rate_limit_reset  # レートリミット情報をグローバル変数として参照
+
     for attempt in range(max_retries):
         try:
+            # レートリミット確認
+            if rate_limit_remaining is not None and rate_limit_remaining <= 1:
+                if rate_limit_reset is not None:
+                    wait_time = datetime.fromtimestamp(rate_limit_reset) - datetime.now()
+                    wait_seconds = wait_time.total_seconds()
+                    if wait_seconds > 0:
+                        print(f"レートリミット残り回数不足。{wait_seconds:.1f}秒待機します...")
+                        logging.info(f"レートリミット残り回数不足。{wait_seconds:.1f}秒待機します...")
+                        time.sleep(wait_seconds)
+                else:
+                    print("レートリミットのリセット時間が不明です。")
+                    logging.warning("レートリミットのリセット時間が不明です。")
+
             if count_tweet_length(text) > 280:
-                print("エラー：ツイートが文字数制限を超えています。")
+                error_msg = "エラー：ツイートが文字数制限を超えています。"
+                print(error_msg)
+                logging.error(error_msg)  # ログにもエラーを記録
                 return None
 
             response = client.create_tweet(
                 text=text,
                 in_reply_to_tweet_id=in_reply_to_tweet_id,
-                user_auth=True  # ユーザーコンテキストを明示
+                user_auth=True
             )
-            return response.data["id"]
+            tweet_id = response.data["id"]
+            print(f"ツイート成功: ID={tweet_id}")
+            logging.info(f"ツイート成功: ID={tweet_id}, テキスト: {text}")  # ログに記録
+            return tweet_id
 
-        except tweepy.HTTPException as e:
-            if e.response.status_code == 429:
+        except tweepy.TweepyException as e:  # Tweepy関連の例外をまとめてキャッチ
+            if isinstance(e, tweepy.errors.TooManyRequests): # レートリミット超過
                 delay = base_delay * (2 ** attempt)
                 print(f"レートリミット exceeded: {delay}秒待機...")
+                logging.warning(f"レートリミット exceeded: {delay}秒待機...: {e}")
                 time.sleep(delay)
             else:
-                print(f"HTTPエラー ({e.response.status_code}): {e}")
+                print(f"Tweepyエラー: {e}")
+                logging.error(f"Tweepyエラー: {e}")  # 他のTweepyエラーもログに記録
                 return None
+
         except Exception as e:
             print(f"予期せぬエラー: {e}")
+            logging.exception(f"予期せぬエラー: {e}")  # 詳細なスタックトレースをログに記録
             return None
 
     print("最大リトライ回数に達しました")
+    logging.error("最大リトライ回数に達しました")
     return None
 
 # ヘッダーの作成
@@ -204,15 +236,22 @@ if not thread_id:
     print("最初の投稿に失敗したので終了します")
     exit()
 
-# 2つ目以降のツイートをスレッドとして投稿
-for text in tweets[1:]:
-    time.sleep(5)  # API制限回避のため待機
+# 2つ目以降のツイートをスレッドとして投稿 (改善)
+for i, text in enumerate(tweets[1:]):  # インデックスも取得
+    time.sleep(5)
     print("返信投稿: ")
     print(text)
     print(f"返信対象: {thread_id}")
     print("-" * 50)
 
-    thread_id = post_tweet_with_retry(text=text, in_reply_to_tweet_id=thread_id)
-    if not thread_id:
-        print("返信投稿に失敗したので終了します。")
-        break
+    new_thread_id = post_tweet_with_retry(text=text, in_reply_to_tweet_id=thread_id)
+    if new_thread_id:
+        thread_id = new_thread_id  # 成功したら thread_id を更新
+        rate_limit_remaining = rate_limit_remaining - 1 if rate_limit_remaining is not None else None #残り回数を減らす
+    else:
+        print(f"{i+2}番目のツイート投稿に失敗しました。")
+        logging.error(f"{i+2}番目のツイート投稿に失敗しました。")  # ログ記録
+        # スレッドの継続性要件に応じて、break するか、continue で次のツイートに進むかを決定
+
+        # continue # 失敗を無視して次のツイートに進む場合
+        break # 失敗したら処理を中断する場合
