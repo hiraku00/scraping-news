@@ -9,58 +9,16 @@ import os
 import sys
 import time
 import multiprocessing
-import logging
 import configparser
 import re
 from selenium.common.exceptions import TimeoutException, NoSuchElementException, StaleElementReferenceException
+from common.utils import setup_logger, load_config, WebDriverManager
 
 # デフォルトのタイムアウト時間
 DEFAULT_TIMEOUT = 10
 
-# 設定ファイル読み込み
-def load_config(config_path: str) -> configparser.ConfigParser:
-    """設定ファイルを読み込む"""
-    config = configparser.ConfigParser()
-    try:
-        config.read(config_path, encoding='utf-8')
-        logger.info(f"設定ファイル {config_path} を読み込みました。")
-    except Exception as e:
-        logger.error(f"設定ファイル {config_path} の読み込みに失敗しました: {e}")
-        raise
-    return config
-
-# ログ設定
-def setup_logger() -> logging.Logger:
-    """ロガーを設定する"""
-    logger = logging.getLogger(__name__)
-    logger.setLevel(logging.INFO)  # INFOレベル以上のログを処理
-    console_handler = logging.StreamHandler()
-    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-    console_handler.setFormatter(formatter)
-    logger.addHandler(console_handler)
-
-    # ルートロガーのレベルをERRORに設定（追加）
-    logging.getLogger().setLevel(logging.ERROR)
-
-    logger.info("ロガーを設定しました。")
-    return logger
-
-# Chrome WebDriverの作成関数
-def create_driver() -> webdriver.Chrome:
-    """Chrome WebDriverを作成する"""
-    options = Options()
-    options.add_argument("--headless")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--log-level=ERROR")  # SeleniumのログレベルをERRORに設定
-    try:
-        driver = webdriver.Chrome(options=options)
-        logger.info("Chrome WebDriverを作成しました。")
-        return driver
-    except Exception as e:
-        logger.error(f"Chrome WebDriverの作成に失敗しました: {e}")
-        raise
+# loggerの呼び出し方を変更
+logger = setup_logger(__name__)
 
 # Selenium関連のヘルパークラス
 class CustomExpectedConditions:
@@ -210,27 +168,25 @@ def get_nhk_formatted_episode_info(driver: webdriver.Chrome, program_title: str,
 
 def get_nhk_info_formatted(program_title: str, program_info: dict, target_date: str) -> str | None:
     """NHKの番組情報を取得して整形する"""
-    driver = create_driver()
-    try:
-        logger.info(f"検索開始: {program_title}")
-        driver.get(program_info["url"])
+    with WebDriverManager() as driver:
+        try:
+            logger.info(f"検索開始: {program_title}")
+            driver.get(program_info["url"])
 
-        episode_url = extract_nhk_episode_info(driver, target_date, program_title)
-        if episode_url:
-            formatted_output = get_nhk_formatted_episode_info(driver, program_title, episode_url, program_info["channel"])
-            if formatted_output:
-                return formatted_output
+            episode_url = extract_nhk_episode_info(driver, target_date, program_title)
+            if episode_url:
+                formatted_output = get_nhk_formatted_episode_info(driver, program_title, episode_url, program_info["channel"])
+                if formatted_output:
+                    return formatted_output
+                else:
+                    logger.warning(f"{program_title}の番組詳細の取得に失敗しました - {program_info['url']}")
+                    return None
             else:
-                logger.warning(f"{program_title}の番組詳細の取得に失敗しました - {program_info['url']}")
+                logger.warning(f"{program_title}が見つかりませんでした - {program_info['url']}")
                 return None
-        else:
-            logger.warning(f"{program_title}が見つかりませんでした - {program_info['url']}")
+        except Exception as e:
+            logger.error(f"エラーが発生しました: {e} - {program_title}, {program_info['url']}")
             return None
-    except Exception as e:
-        logger.error(f"エラーが発生しました: {e} - {program_title}, {program_info['url']}")
-        return None
-    finally:
-        driver.quit()
 
 def _extract_program_time(driver: webdriver.Chrome, program_title: str, episode_url: str, channel: str, max_retries: int = 3, retry_interval: int = 1) -> str:
     """番組詳細ページから放送時間を抽出する"""
@@ -404,46 +360,45 @@ def fetch_tvtokyo_episode_details(driver: webdriver.Chrome, episode_url: str, pr
 
 def fetch_tvtokyo_program_details(program_config: dict, target_date: str) -> str | None:
     """テレビ東京の番組詳細情報を取得する（WBSとそれ以外を区別）"""
-    driver = create_driver()
-    try:
-        formatted_date = format_date(target_date)
-        weekday = datetime.strptime(target_date, '%Y%m%d').weekday()
-        program_time = format_program_time(program_config['name'], weekday, program_config['time'])
-        program_name = program_config['name']
+    # driver = create_driver() # これを以下のように変更
+    with WebDriverManager() as driver:
+        try:
+            formatted_date = format_date(target_date)
+            weekday = datetime.strptime(target_date, '%Y%m%d').weekday()
+            program_time = format_program_time(program_config['name'], weekday, program_config['time'])
+            program_name = program_config['name']
 
-        logger.info(f"検索開始: {program_name}")
+            logger.info(f"検索開始: {program_name}")
 
-        if program_name == "WBS":
-            episode_urls = extract_tvtokyo_episode_urls(driver, program_config["urls"], formatted_date, program_name)
-        else:
-            episode_urls = extract_tvtokyo_episode_urls(driver, [program_config["url"]], formatted_date, program_name)
+            if program_name == "WBS":
+                episode_urls = extract_tvtokyo_episode_urls(driver, program_config["urls"], formatted_date, program_name)
+            else:
+                episode_urls = extract_tvtokyo_episode_urls(driver, [program_config["url"]], formatted_date, program_name)
 
 
-        if not episode_urls:
-            logger.warning(f"{program_name} が見つかりませんでした")
+            if not episode_urls:
+                logger.warning(f"{program_name} が見つかりませんでした")
+                return None
+
+            episode_details = [
+                fetch_tvtokyo_episode_details(driver, url, program_name) for url in episode_urls
+            ]
+
+            # 結果の整形
+            formatted_output = f"●{program_config['name']}{program_time}\n"
+            for title, url in episode_details:
+                if title and url:
+                    formatted_output += f"・{title}\n{url}\n"
+
+            if formatted_output == f"●{program_config['name']}{program_time}\n":  # 詳細情報がない場合
+                return None
+
+            logger.info(f"{program_name} の詳細情報を取得しました")
+            return formatted_output
+
+        except Exception as e:
+            logger.error(f"番組情報取得中にエラー: {e} - {program_name}")
             return None
-
-        episode_details = [
-            fetch_tvtokyo_episode_details(driver, url, program_name) for url in episode_urls
-        ]
-
-        # 結果の整形
-        formatted_output = f"●{program_config['name']}{program_time}\n"
-        for title, url in episode_details:
-            if title and url:
-                formatted_output += f"・{title}\n{url}\n"
-
-        if formatted_output == f"●{program_config['name']}{program_time}\n":  # 詳細情報がない場合
-            return None
-
-        logger.info(f"{program_name} の詳細情報を取得しました")
-        return formatted_output
-
-    except Exception as e:
-        logger.error(f"番組情報取得中にエラー: {e} - {program_name}")
-        return None
-    finally:
-        driver.quit()
 
 def fetch_program_info(args: tuple[str, str, dict, str]) -> str | None:
     """並列処理用のラッパー関数"""
