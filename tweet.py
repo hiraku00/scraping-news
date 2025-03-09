@@ -181,6 +181,7 @@ def post_tweet_with_retry(text, in_reply_to_tweet_id=None, max_retries=3, base_d
             )
             tweet_id = response.data["id"]
             print(f"ツイート成功: ID={tweet_id}")
+            print("=" * 100)
             return tweet_id
 
         except tweepy.TweepyException as e:  # Tweepy関連の例外をまとめてキャッチ
@@ -224,7 +225,6 @@ if not thread_id:
 # 2つ目以降のツイートをスレッドとして投稿 (改善)
 for i, text in enumerate(tweets[1:]):  # インデックスも取得
     time.sleep(5)
-    print("=" * 100)
     print("返信投稿: ")
     print(text)
     print(f"返信対象: {thread_id}")
