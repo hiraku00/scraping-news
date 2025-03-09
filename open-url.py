@@ -1,30 +1,15 @@
 import os
-import configparser
 import webbrowser
 import re
 import sys
-import logging
 import time
 
-# ロガーの設定
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+from common.utils import load_config, setup_logger
 
-def load_config(config_path: str) -> configparser.ConfigParser:
-    """設定ファイルを読み込む"""
-    config = configparser.ConfigParser()
-    try:
-        config.read(config_path, encoding='utf-8')
-        logger.info(f"設定ファイル {config_path} を読み込みました。")
-    except FileNotFoundError:
-        logger.error(f"設定ファイル {config_path} が見つかりませんでした。")
-        raise
-    except configparser.Error as e:
-        logger.error(f"設定ファイル {config_path} の解析中にエラーが発生しました: {e}")
-        raise
-    return config
+logger = setup_logger(__name__)
 
-def parse_programs_from_config(config: configparser.ConfigParser, prefix: str) -> dict:
+# def parse_programs_from_config(config: configparser.ConfigParser, prefix: str) -> dict:
+def parse_programs_from_config(config, prefix: str) -> dict:
     """設定ファイルから番組情報を解析する"""
     programs = {}
     for section in config.sections():
