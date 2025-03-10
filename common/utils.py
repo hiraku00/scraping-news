@@ -65,3 +65,39 @@ class WebDriverManager:
         if self.driver:
             self.driver.quit()
             logging.getLogger(__name__).info("Chrome WebDriverを終了しました。")
+
+def parse_programs_config(config_path: str, broadcaster_type: str) -> dict:
+    """設定ファイルを読み込んで番組情報を辞書形式で返す"""
+    config = load_config(config_path)  # 既存の load_config 関数を使用
+    programs = {}
+    logger = logging.getLogger(__name__)
+
+    for section in config.sections():
+        if section.startswith('program_'):
+            try:
+                program_name = config.get(section, 'name').strip()
+
+                if broadcaster_type == 'nhk':
+                    url = config.get(section, 'url').strip()
+                    channel = config.get(section, 'channel', fallback="NHK").strip()
+                    programs[program_name] = {"url": url, "channel": channel}
+                elif broadcaster_type == 'tvtokyo':
+                    url = config.get(section, 'url').strip()
+                    time = config.get(section, 'time').strip()
+                    # WBS の URL を特別扱い (リストとして保持)
+                    if program_name == "WBS":
+                        if "urls" not in programs:  # この行を移動
+                            programs["WBS"] = {"urls": [], "time": time, "name": "WBS"} # この行を移動
+                        programs["WBS"]["urls"].append(url)
+                    else:
+                        programs[program_name] = {"url": url, "time": time, "name": program_name}
+                logger.debug(f"{broadcaster_type} 番組設定を解析しました: {program_name}")
+
+            except configparser.NoOptionError as e:
+                logger.error(f"設定ファイルにエラーがあります: {e}, section: {section}")
+                continue
+            except Exception as e:
+                logger.error(f"{broadcaster_type} 番組設定の解析中にエラーが発生しました: {e}, section: {section}")
+                continue
+    logger.info(f"{broadcaster_type} 番組設定ファイルを解析しました。")
+    return programs

@@ -11,7 +11,7 @@ import multiprocessing
 import configparser
 import re
 from selenium.common.exceptions import TimeoutException, NoSuchElementException, StaleElementReferenceException
-from common.utils import setup_logger, load_config, WebDriverManager
+from common.utils import setup_logger, load_config, WebDriverManager, parse_programs_config
 import logging
 from common.base_scraper import BaseScraper
 
@@ -555,10 +555,8 @@ def main():
     logger = setup_logger(__name__)
 
     try:
-        nhk_config = load_config('ini/nhk_config.ini')
-        tvtokyo_config = load_config('ini/tvtokyo_config.ini')
-        nhk_programs = parse_nhk_programs_config(nhk_config)
-        tvtokyo_programs = parse_tvtokyo_programs_config(tvtokyo_config)
+        nhk_programs = parse_programs_config('ini/nhk_config.ini', 'nhk')
+        tvtokyo_programs = parse_programs_config('ini/tvtokyo_config.ini', 'tvtokyo')
 
         tasks = process_scraping(target_date, nhk_programs, tvtokyo_programs)
         total_tasks = len(tasks)
