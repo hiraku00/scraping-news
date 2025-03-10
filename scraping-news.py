@@ -12,7 +12,8 @@ import configparser
 import re
 from selenium.common.exceptions import TimeoutException, NoSuchElementException, StaleElementReferenceException
 from common.utils import setup_logger, load_config, WebDriverManager
-import logging  # ログ出力のために必要
+import logging
+from common.base_scraper import BaseScraper
 
 # デフォルトのタイムアウト時間
 DEFAULT_TIMEOUT = 10
@@ -25,13 +26,12 @@ class CustomExpectedConditions:
         """ページが完全に読み込まれたことを確認する"""
         return lambda driver: driver.execute_script("return document.readyState") == "complete"
 
-class NHKScraper:
+class NHKScraper(BaseScraper):  # BaseScraper を継承
     """NHKの番組情報をスクレイピングするクラス"""
 
     def __init__(self, config):
-        self.config = config
-        self.driver = None
-        self.logger = logging.getLogger(__name__)  # 初期化済みのロガーを取得
+        super().__init__(config)  # 基底クラスの __init__ を呼び出す
+        self.driver = None #削除
 
     def get_program_info(self, program_name: str, target_date: str) -> str | None:
         """指定された番組の情報を取得する"""
@@ -226,13 +226,12 @@ class NHKScraper:
             hour = 0
         return f"{hour:02}:{minute:02}"
 
-class TVTokyoScraper:
+class TVTokyoScraper(BaseScraper):  # BaseScraper を継承
     """テレビ東京の番組情報をスクレイピングするクラス"""
 
     def __init__(self, config):
-        self.config = config
-        self.driver = None
-        self.logger = logging.getLogger(__name__)  # 初期化済みのロガーを取得
+        super().__init__(config)  # 基底クラスの __init__ を呼び出す
+        self.driver = None #削除
 
     def get_program_info(self, program_name: str, target_date: str) -> str | None:
         """指定された番組の情報を取得する"""
@@ -471,28 +470,23 @@ def _convert_to_24h(ampm: str | None, time_str: str) -> str:
         hour = 0
     return f"{hour:02}:{minute:02}"
 
-def fetch_program_info(args: tuple[str, str, configparser.ConfigParser, str]) -> str | None:
+def fetch_program_info(args: tuple[str, str, dict, str]) -> str | None:
     """並列処理用のラッパー関数"""
-    task_type, program_name, config, target_date = args
+    task_type, program_name, programs, target_date = args
     logger = logging.getLogger(__name__)
 
     try:
         if task_type == 'nhk':
-            scraper = NHKScraper(config)  # program_name を削除
-            scraper.logger.info(f"検索開始: {program_name}")
-            result = scraper.get_program_info(program_name, target_date) #program_nameを追加
+            scraper = NHKScraper(programs)
+            result = scraper.get_program_info(program_name, target_date)
         elif task_type == 'tvtokyo':
-            scraper = TVTokyoScraper(config)  # program_name を削除
-            scraper.logger.info(f"検索開始: {program_name}")
-            result = scraper.get_program_info(program_name, target_date) #program_nameを追加
-        else:
-            logger.error(f"不明なタスクタイプです: {task_type}")
-            return None
+            scraper = TVTokyoScraper(programs)
+            result = scraper.get_program_info(program_name, target_date)
 
         if result:
-            scraper.logger.info(f"{program_name} の情報を取得しました。")
+            logger.info(f"{program_name} の情報を取得しました。")  # scraper.logger ではない
         else:
-            scraper.logger.warning(f"{program_name} の情報の取得に失敗しました。")
+            logger.warning(f"{program_name} の情報の取得に失敗しました。")  # scraper.logger ではない
         return result
 
     except Exception as e:
