@@ -1,4 +1,3 @@
-import requests
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -482,11 +481,14 @@ def fetch_program_info(args: tuple[str, str, dict, str]) -> str | None:
         elif task_type == 'tvtokyo':
             scraper = TVTokyoScraper(programs)
             result = scraper.get_program_info(program_name, target_date)
+        else:
+            logger.error(f"不明なタスクタイプです: {task_type}")
+            return None
 
         if result:
-            logger.info(f"{program_name} の情報を取得しました。")  # scraper.logger ではない
+            logger.info(f"{program_name} の情報を取得しました。")
         else:
-            logger.warning(f"{program_name} の情報の取得に失敗しました。")  # scraper.logger ではない
+            logger.warning(f"{program_name} の情報の取得に失敗しました。")
         return result
 
     except Exception as e:

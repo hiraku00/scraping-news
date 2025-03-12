@@ -68,7 +68,7 @@ class WebDriverManager:
 
 def parse_programs_config(config_path: str, broadcaster_type: str) -> dict:
     """設定ファイルを読み込んで番組情報を辞書形式で返す"""
-    config = load_config(config_path)  # 既存の load_config 関数を使用
+    config = load_config(config_path)
     programs = {}
     logger = logging.getLogger(__name__)
 
@@ -86,8 +86,8 @@ def parse_programs_config(config_path: str, broadcaster_type: str) -> dict:
                     time = config.get(section, 'time').strip()
                     # WBS の URL を特別扱い (リストとして保持)
                     if program_name == "WBS":
-                        if "urls" not in programs:  # この行を移動
-                            programs["WBS"] = {"urls": [], "time": time, "name": "WBS"} # この行を移動
+                        if "WBS" not in programs:
+                            programs["WBS"] = {"urls": [], "time": time, "name": "WBS"}
                         programs["WBS"]["urls"].append(url)
                     else:
                         programs[program_name] = {"url": url, "time": time, "name": program_name}
