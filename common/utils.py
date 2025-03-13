@@ -2,6 +2,7 @@ from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 import logging
 import configparser
+import re
 
 def setup_logger(name: str = __name__) -> logging.Logger:
     """ロガーを設定する"""
@@ -101,3 +102,17 @@ def parse_programs_config(config_path: str, broadcaster_type: str) -> dict:
                 continue
     logger.info(f"{broadcaster_type} 番組設定ファイルを解析しました。")
     return programs
+
+def extract_time_from_block(block: str) -> tuple[int, int]:
+    """番組ブロックから放送開始時間を抽出するヘルパー関数"""
+    first_line = block.split('\n')[0]
+    time_match = re.search(r'(\d{2}:\d{2})', first_line)
+    if time_match:
+        time_str = time_match.group(1)
+        hour, minute = map(int, time_str.split(':'))
+        return hour, minute
+    return 25, 0  # 時間が見つからない場合はソート順を最後にする
+
+def sort_blocks_by_time(blocks: list[str]) -> list[str]:
+    """番組ブロックを放送時間順にソートする"""
+    return sorted(blocks, key=lambda block: extract_time_from_block(block))

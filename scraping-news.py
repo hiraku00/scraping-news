@@ -10,7 +10,7 @@ import multiprocessing
 import configparser
 import re
 from selenium.common.exceptions import TimeoutException, NoSuchElementException, StaleElementReferenceException
-from common.utils import setup_logger, load_config, WebDriverManager, parse_programs_config
+from common.utils import setup_logger, load_config, WebDriverManager, parse_programs_config, sort_blocks_by_time, extract_time_from_block
 import logging
 from common.base_scraper import BaseScraper
 
@@ -494,20 +494,6 @@ def fetch_program_info(args: tuple[str, str, dict, str]) -> str | None:
     except Exception as e:
         logger.error(f"{program_name} の情報取得中にエラーが発生しました: {e}")
         return None
-
-def extract_time_from_block(block: str) -> tuple[int, int]:
-    """番組ブロックから放送開始時間を抽出するヘルパー関数"""
-    first_line = block.split('\n')[0]
-    time_match = re.search(r'(\d{2}:\d{2})', first_line)
-    if time_match:
-        time_str = time_match.group(1)
-        hour, minute = map(int, time_str.split(':'))
-        return hour, minute
-    return 25, 0
-
-def sort_blocks_by_time(blocks: list[str]) -> list[str]:
-    """番組ブロックを放送時間順にソートする"""
-    return sorted(blocks, key=lambda block: extract_time_from_block(block))
 
 def get_japanese_weekday(date: datetime) -> str:
     """日付から日本語の曜日を取得する"""
