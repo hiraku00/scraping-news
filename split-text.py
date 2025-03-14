@@ -1,30 +1,17 @@
+# split-text.py
 import sys
 import os
 import re
-
-# URLの文字数計算関数を修正
-def count_tweet_length(text):
-    url_pattern = re.compile(r'https?://\S+')
-    urls = url_pattern.findall(text)
-
-    # 全角文字を2文字としてカウント
-    text_length = 0
-    for char in text:
-        if ord(char) > 255: # Unicodeコードポイントが255より大きい場合は全角とみなす
-            text_length += 2
-        else:
-            text_length += 1
-
-    # URLを11.5文字として計算
-    url_length = 11.5 * len(urls)
-
-    # 全角・半角文字とURLを考慮した長さを返す
-    total_length = text_length - sum(len(url) for url in urls) + url_length
-    return total_length
+from common.constants import (
+    TWEET_MAX_LENGTH,
+    get_header_text,
+    get_header_length
+)
+from common.utils import count_tweet_length
 
 # コマンドライン引数から日付を取得
 if len(sys.argv) < 2:
-    print("使用方法: python tweet.py <日付 (例: 20250129)>")
+    print("使用方法: python split-text.py <日付 (例: 20250129)>")
     sys.exit(1)
 
 date = sys.argv[1]
@@ -39,7 +26,7 @@ except FileNotFoundError:
     print(f"エラー: {file_path} が見つかりません。")
     sys.exit(1)
 
-def split_program(text, max_length=230):
+def split_program(text, max_length=TWEET_MAX_LENGTH, header_length=0):
     """
     番組テキストを指定された文字数制限内で分割する関数（ヘッダーなし）。
 
@@ -50,19 +37,19 @@ def split_program(text, max_length=230):
     Returns:
         list: 分割されたテキストのリスト。
     """
-
     split_tweets = []
     lines = text.split('\n')
 
-    program_name = "" # 現在処理中の番組名
-    current_tweet = "" # 現在作成中のツイート
+    program_name = ""  # 現在処理中の番組名
+    current_tweet = ""  # 現在作成中のツイート
+    is_first_program = True  # 最初のプログラムかどうかを判定するフラグ
 
     i = 0
     while i < len(lines):
         if lines[i].startswith("●"):
-            program_name = lines[i] # 現在の番組名を設定
+            program_name = lines[i]  # 現在の番組名を設定
 
-            #新しい番組なのでcurrent_tweetをリセット
+            # 新しい番組なのでcurrent_tweetをリセット
             if current_tweet:
                 split_tweets.append(current_tweet)
             current_tweet = ""
@@ -78,29 +65,38 @@ def split_program(text, max_length=230):
             if not current_tweet:
                 current_tweet = program_name + '\n'
 
-            #結合したものが制限以下なら
-            if count_tweet_length(current_tweet + combined) <= max_length:
-                current_tweet += combined + "\n"
-                i += 1
+            # 最初のプログラムの最初のツイートのみ、ヘッダー長を考慮
+            if is_first_program and not split_tweets:
+                if count_tweet_length(current_tweet + combined) <= max_length - header_length:
+                    current_tweet += combined + "\n"
+                    i += 1
+                else:
+                    split_tweets.append(current_tweet)
+                    current_tweet = combined + "\n"
+                    i += 1
             else:
-                #現在のツイートに追加すると制限を超える場合
-                split_tweets.append(current_tweet)
-                current_tweet = combined + "\n" #新しいツイート
-                i += 1
+                if count_tweet_length(current_tweet + combined) <= max_length:
+                    current_tweet += combined + "\n"
+                    i += 1
+                else:
+                    split_tweets.append(current_tweet)
+                    current_tweet = combined + "\n"
+                    i += 1
 
         elif not lines[i].strip():
             # 空行は無視するが、current_tweetが空でない場合は追加
             if current_tweet:
                 split_tweets.append(current_tweet)
-            current_tweet = "" # リセット
+            current_tweet = ""  # リセット
             i += 1
-        else :
+        else:
             i += 1
 
-    #最後の処理
+    # 最後の処理
     if current_tweet:
         split_tweets.append(current_tweet)
 
+    is_first_program = False
     return split_tweets
 
 # プログラム（ブロック）ごとにテキストを分割する関数
@@ -112,7 +108,7 @@ def split_by_program(text):
     program_list = []
     for i in range(0, len(programs), 2):
         if i + 1 < len(programs):
-            program_list.append(programs[i].strip() + '\n' + programs[i+1].strip() + '\n') # 前後の空白を削除して改行を挟む
+            program_list.append(programs[i].strip() + '\n' + programs[i+1].strip() + '\n')  # 前後の空白を削除して改行を挟む
         else:
             program_list.append(programs[i].strip())
     return program_list
@@ -124,18 +120,26 @@ programs = split_by_program(text)
 needs_split = False
 
 # 分割前の文字数と内容を出力
-print("--- 分割前のテキスト ---")
+print("\n")
+print("============================== 分割前のテキスト ==============================")
 for i, program in enumerate(programs):
     length = count_tweet_length(program)
     print(program)
     print(f"文字数: {length}")
     print("-" * 20)
 
-    if count_tweet_length(program) > 230:
+    # 最初のブロックの場合はヘッダーを考慮して判定
+    header_length = get_header_length(date)  # ヘッダーの長さを計算
+    if i == 0:
+        if length + header_length > TWEET_MAX_LENGTH:
+            needs_split = True
+            break
+    elif length > TWEET_MAX_LENGTH:  # 2番目以降のブロックは TWEET_MAX_LENGTH で判定
         needs_split = True
         break
 
 if needs_split:
+    # (ファイルバックアップ、分割、ファイル書き込み処理は変更なし)
     # ファイルバックアップ
     try:
         os.rename(file_path, backup_file_path)
@@ -149,14 +153,20 @@ if needs_split:
 
     # 分割されたプログラムを格納するリスト
     new_programs = []
+    header_length = get_header_length(date)
     for program in programs:
-        if count_tweet_length(program) > 230:
-            # プログラムを分割
-            split_tweets = split_program(program, max_length=230)
-            new_programs.extend(split_tweets)
-        else:
-            # 分割不要なプログラムはそのまま追加
-            new_programs.append(program)
+        if i == 0:  # 最初のブロック
+            if count_tweet_length(program)  > TWEET_MAX_LENGTH - header_length:
+                split_tweets = split_program(program, header_length=header_length)
+                new_programs.extend(split_tweets)
+            else:
+                new_programs.append(program) # 分割不要
+        else:  # 2番目以降のブロック
+            if count_tweet_length(program) > TWEET_MAX_LENGTH:
+                split_tweets = split_program(program)  # header_length は不要
+                new_programs.extend(split_tweets)
+            else:
+                new_programs.append(program)  # 分割不要
 
     # 分割されたテキストをファイルに書き込む
     try:
@@ -180,12 +190,13 @@ if needs_split:
         sys.exit(1)
 
     # 分割後の文字数と内容を出力
-    print("--- 分割後のテキスト ---")
+    print("\n")
+    print("============================== 分割後のテキスト ==============================")
     for item in new_programs:
         length = count_tweet_length(item)
         print(item)
         print(f"文字数: {length}")
-        print("-" * 20)
+        print("-" * 60)
 
 else:
     # 分割が必要ない場合

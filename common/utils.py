@@ -1,3 +1,4 @@
+# common/utils.py
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 import logging
@@ -116,3 +117,28 @@ def extract_time_from_block(block: str) -> tuple[int, int]:
 def sort_blocks_by_time(blocks: list[str]) -> list[str]:
     """番組ブロックを放送時間順にソートする"""
     return sorted(blocks, key=lambda block: extract_time_from_block(block))
+
+def count_characters(text: str) -> int:
+    """全角文字を2文字、半角文字を1文字としてカウントする"""
+    count = 0
+    for char in text:
+        if ord(char) > 255:  # 全角文字判定
+            count += 2
+        else:
+            count += 1
+    return count
+
+def count_tweet_length(text):
+    """URLを11.5文字としてカウントし、全体の文字数を計算"""
+    url_pattern = re.compile(r'https?://\S+')
+    urls = url_pattern.findall(text)
+
+    # 全角・半角文字をカウント (共通関数を使用)
+    text_length = count_characters(text)
+
+    # URLを11.5文字として計算
+    url_length = 11.5 * len(urls)
+
+    # 全角・半角文字とURLを考慮した長さを返す
+    total_length = text_length - sum(len(url) for url in urls) + url_length
+    return total_length
