@@ -12,7 +12,7 @@
 4.  **`split-text.py`**: マージされたテキストをツイート用に分割します。
 5.  **`tweet.py`**: 分割されたテキストを基に、Xにツイートを投稿します。
 
-これらのスクリプトは `common` ディレクトリ内の共通モジュール (`base_scraper.py`, `utils.py`) を利用します。
+これらのスクリプトは `common` ディレクトリ内の共通モジュール (`base_scraper.py`, `utils.py`, `constants.py`) を利用します。
 
 ## スクリプトの詳細
 
@@ -22,7 +22,7 @@
 
 #### 機能
 
-*   **設定ファイルの利用**: `ini` ディレクトリ内の設定ファイル (`nhk_config.ini`, `tvtokyo_config.ini`) に基づいてスクレイピング対象の番組を定義します。設定ファイルは `common/utils.py` の `load_config` 関数と、`parse_nhk_programs_config`、`parse_tvtokyo_programs_config` 関数を使って読み込まれ、設定エラー時にはログが出力されます。
+*   **設定ファイルの利用**: `ini` ディレクトリ内の設定ファイル (`nhk_config.ini`, `tvtokyo_config.ini`) に基づいてスクレイピング対象の番組を定義します。設定ファイルは `common.utils` の `load_config` 関数と、`common.utils`の`parse_nhk_programs_config`、`parse_tvtokyo_programs_config` 関数を使って読み込まれ、設定エラー時にはログが出力されます。
 *   **動的なウェブページスクレイピング**: SeleniumとChrome WebDriverを利用して、JavaScriptで動的に生成されるウェブページから情報を抽出します。
 *   **クラス構成**: `NHKScraper` と `TVTokyoScraper` クラスが `common/base_scraper.py` の `BaseScraper` クラスを継承する形で実装されています。
 *   **マルチプロセス**: 複数の番組情報を並行してスクレイピングすることで、処理時間を短縮します。
@@ -30,23 +30,9 @@
 *   **詳細な番組情報抽出**: 各番組のエピソードタイトル、URL、放送時間を抽出します。
 *   **時間順のソート**: スクレイピングした番組情報を時間順にソートして出力します。
 
-#### 依存ライブラリ
-
-*   `selenium`: ウェブブラウザの自動操作に利用します。
-*   `webdriver_manager`: ChromeDriverの管理に利用します。
-*   `datetime`: 日付と時間の操作に利用します。
-*   `os`: OS関連の操作に利用します。
-*   `sys`: システム関連の操作に利用します。
-*   `time`: 時間関連の操作に利用します。
-*   `multiprocessing`: 並列処理に利用します。
-*   `configparser`: 設定ファイルの解析に利用します。
-*   `re`: 正規表現操作に利用します。
-*   `selenium.common.exceptions`: Selenium関連の例外処理に利用します。
-*   `logging`: ログ出力に利用します。
-
 #### 使い方
 
-1.  `ini`ディレクトリに設定ファイルを作成します（例：`nhk_config.ini`, `tvtokyo_config.ini`）。設定ファイルは `common/utils.py` の `load_config` 関数、および `parse_nhk_programs_config`, `parse_tvtokyo_programs_config` 関数を使って読み込まれます。
+1.  `ini`ディレクトリに設定ファイルを作成します（例：`nhk_config.ini`, `tvtokyo_config.ini`）。設定ファイルは `common.utils` の `load_config` 関数、および `parse_nhk_programs_config`, `parse_tvtokyo_programs_config` 関数を使って読み込まれます。
 
     *   `nhk_config.ini` の例:
 
@@ -103,17 +89,6 @@
 - **`format_tweet_data` 関数**:  取得したツイートデータを解析し、指定されたフォーマットに整形します。
 - **エラーハンドリング**:  API 呼び出し時のエラーや例外を適切に処理します。
 
-#### 依存ライブラリ
-
--   `tweepy`: X API クライアントとして利用します。
--   `python-dotenv`: 環境変数の読み込みに利用します。
--   `datetime`: 日付と時間の操作に利用します。
--   `sys`: システム関連の操作に利用します。
--   `pytz`: タイムゾーンの変換に利用します。
--   `re`: 正規表現操作に利用します。
--   `json`: JSON データのパースに利用します (ダミーデータ使用時)。
--   `unicodedata`: 全角文字の判定に利用します。
-
 #### 使い方
 
 1.  `.env` ファイルを作成し、以下の X API キーを設定します。
@@ -158,13 +133,13 @@
 
 ### `split-text.py`
 
-このスクリプトは、`merge-text.py` によって生成されたテキストファイル（または `scraping-news.py` の出力ファイル）をツイート用に分割します。
+このスクリプトは、`merge-text.py` によって生成されたテキストファイル（または `scraping-news.py` の出力ファイル）をTwitterの文字数制限に合わせて分割します。
 
 #### 機能
 
 *   **文字数制限の考慮**: ツイートの文字数制限（280文字、全角は2文字、半角は1文字、URLは11.5文字としてカウント）を考慮して、テキストを分割します。
-*   **`count_tweet_length` 関数**: URL を考慮した文字数計算を行います。
-*   **番組ごとの分割**:  `●` で始まる各番組のブロックを認識し、各ブロックを文字数制限内に収まるように分割します。
+*   **`count_tweet_length` 関数**: URL を考慮した文字数計算を、`common.utils`の`count_tweet_length` 関数で行います。
+*   **番組ごとの分割**:  `●` で始まる各番組のブロックを認識し、各ブロックを文字数制限内に収まるように分割します。最初のブロックでは、`common/constants.py`の`get_header_text`関数で生成されるヘッダーの長さも考慮します。
 *   **ファイルバックアップ**: 分割前のファイルは `YYYYMMDD_before-split.txt` にバックアップされます。
 * 　**分割が不要な場合は何もしない**: 分割が必要ないと判断した場合は、ファイルを変更しません
 
@@ -190,17 +165,8 @@
 -   **スレッド形式での投稿**: スクレイピング結果をスレッド形式で投稿します。
 -   **レート制限処理**: レート制限を考慮し、`tweepy.errors.TooManyRequests` 例外をキャッチしてリトライします。 レート制限の残り回数とリセット時間も表示します。
 -   **エラーハンドリング**: レート制限以外のエラーも適切に処理します。
--   **文字数制限**: ツイートが文字数制限を超えないようにチェックします。`count_tweet_length` 関数で URL を考慮した文字数計算を行います。
-
-#### 依存ライブラリ
-
--   `tweepy`: X API クライアントとして利用します。
--   `python-dotenv`: 環境変数の読み込みに利用します。
--   `time`: 時間関連の操作に利用します。
--   `sys`: システム関連の操作に利用します。
--   `os`: OS関連の操作に利用します。
--   `re`: 正規表現操作に利用します。
--   `datetime`
+-   **文字数制限**: ツイートが文字数制限を超えないようにチェックします。`common/utils`の`count_tweet_length` 関数で URL を考慮した文字数計算を行います。
+- **ヘッダーテキスト**: `common/constants.py`の`get_header_text`関数でヘッダーテキストを生成します。
 
 #### 使い方
 
@@ -220,6 +186,52 @@
     ```bash
     python tweet.py <投稿したい日付(例:20250125)>
     ```
+#### 依存ライブラリ
+
+*   **`scraping-news.py`**
+    *   `selenium`
+    *   `webdriver_manager`
+    *   `datetime`
+    *   `os`
+    *   `sys`
+    *   `time`
+    *   `multiprocessing`
+    *   `configparser`
+    *   `re`
+    *   `selenium.common.exceptions`
+    *   `logging`
+
+*   **`get-tweet.py`**
+    *   `tweepy`
+    *   `python-dotenv`
+    *   `datetime`
+    *   `sys`
+    *   `pytz`
+    *   `re`
+    *   `json` (ダミーデータ利用時)
+    *   `unicodedata`
+
+*  **`merge-text.py`**
+    *  `sys`
+    *  `os`
+    *  `common.utils`
+
+*   **`split-text.py`**
+    *   `sys`
+    *   `os`
+    *   `re`
+    *   `common.constants`
+    *   `common.utils`
+
+*   **`tweet.py`**
+    *   `tweepy`
+    *   `time`
+    *   `sys`
+    *   `os`
+    *   `dotenv`
+    *   `datetime`
+    *   `common.constants`
+    *   `common.utils`
 
 ## 注意事項
 
