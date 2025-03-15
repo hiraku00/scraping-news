@@ -3,33 +3,9 @@ import webbrowser
 import re
 import sys
 import time
-
-from common.utils import load_config, setup_logger
+from common.utils import load_config, setup_logger, parse_programs_config
 
 logger = setup_logger(__name__)
-
-# def parse_programs_from_config(config: configparser.ConfigParser, prefix: str) -> dict:
-def parse_programs_from_config(config, prefix: str) -> dict:
-    """設定ファイルから番組情報を解析する"""
-    programs = {}
-    for section in config.sections():
-        if section.startswith(prefix):
-            try:
-                program_name = config.get(section, 'name').strip()
-                url = config.get(section, 'url').strip()
-                time = config.get(section, 'time').strip() if config.has_option(section, 'time') else None
-                if program_name not in programs:
-                    programs[program_name] = []
-                programs[program_name].append({"url": url, "time": time})
-                logger.debug(f"番組情報を解析しました: {program_name}, URL: {url}")
-            except (configparser.NoOptionError, ValueError) as e:
-                logger.error(f"設定ファイルのセクション {section} に必要なオプションが見つかりません: {e}")
-                continue
-            except Exception as e:
-                logger.error(f"設定ファイル {section} の解析中にエラーが発生しました: {e}")
-                continue
-    logger.info(f"設定ファイルから番組情報を解析しました。")
-    return programs
 
 def extract_urls_from_file(file_path: str) -> list[str]:
     """テキストファイルからURLを抽出する"""
@@ -160,9 +136,9 @@ def main():
         logger.error(f"設定ファイルの読み込みに失敗しました: {e}")
         sys.exit(1)
 
-    nhk_programs = parse_programs_from_config(nhk_config, 'program_')
-    tvtokyo_programs = parse_programs_from_config(tvtokyo_config, 'program_')
-
+    nhk_programs = parse_programs_config(nhk_config_path)
+    tvtokyo_programs = parse_programs_config(tvtokyo_config_path)
+    
     try:
         output_urls = extract_urls_from_file(output_file_path)
     except Exception as e:

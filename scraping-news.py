@@ -7,10 +7,9 @@ import os
 import sys
 import time
 import multiprocessing
-import configparser
 import re
 from selenium.common.exceptions import TimeoutException, NoSuchElementException, StaleElementReferenceException
-from common.utils import setup_logger, load_config, WebDriverManager, parse_programs_config, sort_blocks_by_time, extract_time_from_block
+from common.utils import setup_logger, load_config, WebDriverManager, parse_programs_config, sort_blocks_by_time
 import logging
 from common.base_scraper import BaseScraper
 
@@ -344,69 +343,6 @@ class TVTokyoScraper(BaseScraper):  # BaseScraper を継承
             self.logger.error(f"エピソード詳細取得エラー: {e} - {program_name}, {episode_url}")
             return None, None
 
-# NHKスクレイピング関数群 (クラスの外に移動)
-def parse_nhk_programs_config(config: configparser.ConfigParser) -> dict:
-    """NHK番組設定ファイルを解析する"""
-    programs = {}
-    logger = logging.getLogger(__name__) #追加
-    for section in config.sections():
-        if section.startswith('program_'):
-            try:
-                program_name = config.get(section, 'name').strip()
-                list_url = config.get(section, 'url').strip()
-                channel = config.get(section, 'channel', fallback="NHK").strip()
-                programs[program_name] = {"url": list_url, "channel": channel}
-                logger.debug(f"NHK番組設定を解析しました: {program_name} - {list_url}")
-            except configparser.NoOptionError as e:
-                logger.error(f"設定ファイルにエラーがあります: {e}, section: {section}")
-                continue
-            except Exception as e:
-                logger.error(f"NHK番組設定の解析中にエラーが発生しました: {e}, section: {section}")
-                continue
-    logger.info("NHK番組設定ファイルを解析しました。")
-    return programs
-
-# テレビ東京スクレイピング関数群 (クラスの外に移動)
-def parse_tvtokyo_programs_config(config: configparser.ConfigParser) -> dict:
-    """テレビ東京番組設定ファイルを解析する。WBSを特別扱い"""
-    programs = {}
-    logger = logging.getLogger(__name__) #追加
-    wbs_urls = []  # WBSのURLを格納するリスト
-
-    for section in config.sections():
-        if section.startswith('program_'):
-            try:
-                program_name = config.get(section, 'name').strip()
-                program_url = config.get(section, 'url').strip()
-                program_time = config.get(section, 'time').strip()
-
-                if program_name == "WBS":
-                    wbs_urls.append(program_url)  # WBSのURLをリストに追加
-                else:
-                    programs[program_name] = {
-                        "url": program_url,
-                        "time": program_time,
-                        "name": program_name
-                    }
-                logger.debug(f"テレビ東京番組設定を解析しました: {program_name} - {program_url}")
-            except configparser.NoOptionError as e:
-                logger.error(f"設定ファイルにエラーがあります: {e}, section: {section}")
-                continue
-            except Exception as e:
-                logger.error(f"テレビ東京番組設定の解析中にエラーが発生しました: {e}, section: {section}")
-                continue
-
-    # WBSの設定をprogramsに追加（キーは "WBS" で固定）
-    if wbs_urls:
-        programs["WBS"] = {
-            "urls": wbs_urls,  # URLのリスト
-            "time": "22:00~22:58",  # WBSの放送時間（曜日によって変わるので、後で調整）
-            "name": "WBS"
-        }
-
-    logger.info("テレビ東京番組設定ファイルを解析しました。")
-    return programs
-
 def format_date(target_date: str) -> str:
     """日付をフォーマットする"""
     return f"{target_date[:4]}.{target_date[4:6]}.{target_date[6:8]}"
@@ -543,8 +479,8 @@ def main():
     logger = setup_logger(__name__)
 
     try:
-        nhk_programs = parse_programs_config('ini/nhk_config.ini', 'nhk')
-        tvtokyo_programs = parse_programs_config('ini/tvtokyo_config.ini', 'tvtokyo')
+        nhk_programs = parse_programs_config('ini/nhk_config.ini')
+        tvtokyo_programs = parse_programs_config('ini/tvtokyo_config.ini')
 
         tasks = process_scraping(target_date, nhk_programs, tvtokyo_programs)
         total_tasks = len(tasks)

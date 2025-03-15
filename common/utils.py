@@ -67,11 +67,36 @@ class WebDriverManager:
             self.driver.quit()
             logging.getLogger(__name__).info("Chrome WebDriverを終了しました。")
 
-def parse_programs_config(config_path: str, broadcaster_type: str) -> dict:
-    """設定ファイルを読み込んで番組情報を辞書形式で返す"""
+def parse_programs_config(config_path: str) -> dict:
+    """
+    設定ファイルを読み込んで番組情報を辞書形式で返す。
+
+    Args:
+        config_path: 設定ファイルのパス。
+        broadcaster_type: 'nhk', 'tvtokyo', または None。
+                           None の場合は、ファイルの種類を自動判別。
+
+    Returns:
+        番組情報を格納した辞書。
+        {
+            "番組名1": {"url": "...", "channel": "...", "time": "..."},
+            "番組名2": {"url": "...", "channel": "...", "time": "..."},
+            ...
+        }
+    """
     config = load_config(config_path)
     programs = {}
     logger = logging.getLogger(__name__)
+    broadcaster_type = None
+
+    # ファイル名から broadcaster_type を自動判別
+    if "nhk" in config_path.lower():
+        broadcaster_type = "nhk"
+    elif "tvtokyo" in config_path.lower():
+        broadcaster_type = "tvtokyo"
+    else:
+        logger.error(f"設定ファイルの種類を判別できません: {config_path}")
+        return {}  # または例外を投げる
 
     for section in config.sections():
         if section.startswith('program_'):
