@@ -1,9 +1,8 @@
-# merge-text.py
 import os
 import sys
 import re
 from datetime import datetime
-from common.utils import setup_logger, extract_time_from_block, sort_blocks_by_time
+from common.utils import setup_logger, sort_blocks_by_time
 
 def extract_time_from_line(line: str) -> tuple[int, int] | None:
     """
@@ -51,7 +50,6 @@ def sort_and_merge_text(file1_path: str, file2_path: str, output_path: str, befo
         logger.error(f"{before_merge_path} の読み込み中にエラーが発生しました: {e}")
         raise
 
-
     # file1_path (YYYYMMDD_tweet.txt) は任意
     if os.path.exists(file1_path):
         try:
@@ -61,7 +59,6 @@ def sort_and_merge_text(file1_path: str, file2_path: str, output_path: str, befo
         except Exception as e:
             logger.error(f"{file1_path} の読み込み中にエラーが発生しました: {e}")
             raise  # file1_path が存在しても読み込みエラーなら停止
-
 
     # combined_lines をブロックごとに分割
     blocks = []
@@ -90,7 +87,6 @@ def sort_and_merge_text(file1_path: str, file2_path: str, output_path: str, befo
     except Exception as e:
         logger.error(f"{output_path} への書き込み中にエラーが発生しました: {e}")
         raise
-
 
 def main():
     """
