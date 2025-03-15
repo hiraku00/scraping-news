@@ -178,3 +178,20 @@ def count_tweet_length(text):
     # 全角・半角文字とURLを考慮した長さを返す
     total_length = text_length - sum(len(url) for url in urls) + url_length
     return total_length
+
+def to_jst_datetime(date_str: str) -> datetime:
+    """YYYYMMDD形式の文字列を日本時間(JST)のdatetimeオブジェクトに変換"""
+    date_obj = datetime.strptime(date_str, "%Y%m%d")
+    jst = pytz.timezone('Asia/Tokyo')
+    jst_datetime = jst.localize(date_obj)
+    return jst_datetime
+
+def to_utc_isoformat(jst_datetime: datetime) -> str:
+    """日本時間(JST)のdatetimeオブジェクトをUTCのISOフォーマット文字列に変換"""
+    utc_datetime = jst_datetime.astimezone(pytz.utc)
+    utc_iso = utc_datetime.strftime("%Y-%m-%dT%H:%M:%SZ")
+    return utc_iso
+
+def format_date(target_date: str) -> str:
+    """日付をフォーマットする (YYYYMMDD -> YYYY.MM.DD)"""
+    return f"{target_date[:4]}.{target_date[4:6]}.{target_date[6:8]}"

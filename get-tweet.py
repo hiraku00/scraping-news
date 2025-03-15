@@ -8,6 +8,7 @@ import pytz
 import re
 import json
 import unicodedata
+from common.utils import to_jst_datetime, to_utc_isoformat
 
 # API を使用するかダミーデータを使用するか (API 制限を回避するため)
 USE_API = True  # API を使用する場合は True に変更
@@ -22,19 +23,6 @@ ACCESS_TOKEN = os.getenv("ACCESS_TOKEN")
 ACCESS_SECRET = os.getenv("ACCESS_SECRET")
 BEARER_TOKEN = os.getenv("BEARER_TOKEN")
 
-def to_jst_datetime(date_str):
-    """YYYYMMDD形式の文字列を日本時間(JST)のdatetimeオブジェクトに変換"""
-    date_obj = datetime.strptime(date_str, "%Y%m%d")
-    jst = pytz.timezone('Asia/Tokyo')
-    jst_datetime = jst.localize(date_obj)
-    return jst_datetime
-
-def to_utc_isoformat(jst_datetime):
-    """日本時間(JST)のdatetimeオブジェクトをUTCのISOフォーマット文字列に変換"""
-    utc_datetime = jst_datetime.astimezone(pytz.utc)
-    utc_iso = utc_datetime.strftime("%Y-%m-%dT%H:%M:%SZ")
-    return utc_iso
-
 def search_tweets(keyword, target_date, user=None, count=10):
     """
     Twitter API v2を使ってツイートを検索し、整形前のツイートデータを返します。
@@ -45,7 +33,6 @@ def search_tweets(keyword, target_date, user=None, count=10):
             client = tweepy.Client(bearer_token=BEARER_TOKEN)
 
             # OR検索のクエリを作成
-            # query = f"({keyword}) from:{user}"
             query = f"from:{user} ({keyword})"
 
             # 検索対象日を放送日の前日に設定

@@ -9,7 +9,7 @@ import time
 import multiprocessing
 import re
 from selenium.common.exceptions import TimeoutException, NoSuchElementException, StaleElementReferenceException
-from common.utils import setup_logger, load_config, WebDriverManager, parse_programs_config, sort_blocks_by_time
+from common.utils import setup_logger, load_config, WebDriverManager, parse_programs_config, sort_blocks_by_time, format_date
 import logging
 from common.base_scraper import BaseScraper
 
@@ -430,11 +430,6 @@ def fetch_program_info(args: tuple[str, str, dict, str]) -> str | None:
     except Exception as e:
         logger.error(f"{program_name} の情報取得中にエラーが発生しました: {e}")
         return None
-
-def get_japanese_weekday(date: datetime) -> str:
-    """日付から日本語の曜日を取得する"""
-    weekdays = ["月", "火", "水", "木", "金", "土", "日"]
-    return weekdays[date.weekday()]
 
 def get_elapsed_time(start_time: float) -> float:
     """経過時間を計算する"""
