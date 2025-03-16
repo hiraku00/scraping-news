@@ -4,7 +4,6 @@ import time
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
 import sys
-import pytz
 import re
 import json
 import unicodedata

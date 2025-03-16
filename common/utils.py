@@ -3,6 +3,9 @@ from selenium.webdriver.chrome.options import Options
 import logging
 import configparser
 import re
+import time
+from datetime import datetime
+import pytz
 
 def setup_logger(name: str = __name__) -> logging.Logger:
     """ロガーを設定する"""

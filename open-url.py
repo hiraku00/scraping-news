@@ -26,94 +26,89 @@ def extract_urls_from_file(file_path: str) -> list[str]:
         raise
     return urls
 
-def open_urls_from_config(config_programs: dict, program_name: str, output_urls: list[str]) -> None:
-    """設定ファイルのURLと出力されたURLを開く"""
-    if program_name in config_programs:
-        config_urls = config_programs[program_name]
-        selected_config_url = None
+def open_urls_from_config(config_programs: dict, program_name: str, block_urls: list[str]) -> bool:
+    """設定ファイルのURL (一覧) とブロック内のURL (詳細) を開く
+       戻り値:  True: 正常に処理 (番組が存在), False: 番組が設定に存在しない
+    """
 
-        wbs_feature_url = None
-        wbs_trend_tamago_url = None
-
-        for program_config in config_urls:
-            if "feature" in program_config['url']:
-                wbs_feature_url = program_config['url']
-            elif "trend_tamago" in program_config['url']:
-                wbs_trend_tamago_url = program_config['url']
-
-        if program_name == "WBS":
-            has_feature_url = False
-            has_trend_tamago_url = False
-            for url in output_urls:
-                if "feature" in url:
-                    has_feature_url = True
-                elif "trend_tamago" in url:
-                    has_trend_tamago_url = True
-
-            logger.info(f"設定ファイル内のURL (WBS):")
-
-            if has_feature_url:
-                selected_config_url = wbs_feature_url
-                if selected_config_url:
-                    logger.info(f"- {selected_config_url} (feature) を開きます")
-                    webbrowser.open(selected_config_url)
-            elif has_trend_tamago_url:
-                selected_config_url = wbs_trend_tamago_url
-                if selected_config_url:
-                    logger.info(f"- {selected_config_url} (trend_tamago) を開きます")
-                    webbrowser.open(selected_config_url)
-            else:
-                logger.info("- (出力ファイルにWBSのURLが見つかりませんでした)")
-
-        else:
-            selected_config_url = config_urls[0]['url']
-            logger.info(f"設定ファイル内のURL ({program_name}): {selected_config_url} を開きます")
-            # webbrowser.open() の直前でログ出力
-            logger.debug(f"webbrowser.open() を呼び出し: {selected_config_url}")
-            webbrowser.open(selected_config_url)
-
-    else:
+    if program_name not in config_programs:
         logger.warning(f"設定ファイルに {program_name} のURLが見つかりませんでした")
+        return False
 
-    if output_urls:
-        logger.info(f"出力ファイルのURL ({program_name}):")
-        for url in output_urls:
-            logger.info(f"{url} を開きます")
-            # webbrowser.open() の直前でログ出力
-            logger.debug(f"webbrowser.open() を呼び出し: {url}")
-            webbrowser.open(url)
-            time.sleep(2)
-    else:
-        logger.info(f"出力ファイルにURLが見つかりませんでした")
+    program_config = config_programs[program_name]
+    list_page_url = None
+
+    # 設定の形式 (文字列, 辞書, リスト) に対応
+    if isinstance(program_config, list):
+        for item in program_config:
+            if isinstance(item, dict) and 'url' in item:
+                list_page_url = item['url']
+            elif isinstance(item, str):
+                list_page_url = item
+            if list_page_url:
+                break  # 最初に見つかったURLを使用
+
+    elif isinstance(program_config, dict) and 'url' in program_config:
+        list_page_url = program_config['url']
+    elif isinstance(program_config, str):
+        list_page_url = program_config
+
+    if not list_page_url:
+        logger.error(f"{program_name} の一覧ページURLが設定されていません。")
+        return False  # 異常終了 (設定ミス)
+
+    # WBSの特殊処理
+    if program_name == "WBS":
+        for detail_url in block_urls:
+            if "feature" in detail_url or "trend_tamago" in detail_url:
+                logger.info(f"{detail_url} を開きます")
+                webbrowser.open(detail_url)
+                time.sleep(2)  # 各詳細ページを開いた後に待機
+        return True  # WBS はここで処理終了
+
+    # 一覧ページを開く
+    logger.info(f"{program_name} の一覧ページ: {list_page_url} を開きます")
+    webbrowser.open(list_page_url)
+
+    # 詳細ページを開く
+    for detail_url in block_urls:
+        logger.info(f"{program_name} の詳細ページ: {detail_url} を開きます")
+        webbrowser.open(detail_url)
+
+    return True
 
 def process_program_block(block: str, nhk_programs: dict, tvtokyo_programs: dict) -> None:
     """番組ブロックを処理する"""
     lines = block.strip().split('\n')
-    if lines:
-        program_info = lines[0].strip()
-        program_name = program_info.split("(")[0]
+    if not lines:
+        return
 
-        block_urls = []
-        for line in lines:
-            url_match = re.search(r'https?://[^\s]+', line)
-            if url_match:
-                block_urls.append(url_match.group(0))
+    program_info = lines[0].strip()
+    program_name = program_info.split("(")[0].strip()  # 番組名
 
-        if program_name in nhk_programs:
-            open_urls_from_config(nhk_programs, program_name, block_urls)
-        elif program_name in tvtokyo_programs:
-            open_urls_from_config(tvtokyo_programs, program_name, block_urls)
-        else:
-            logger.warning(f"番組 {program_name} は設定ファイルに存在しません")
-            # 設定ファイルに存在しない場合、block_urlsが空でない場合にのみURLを開く
-            if block_urls:
-                logger.info(f"出力ファイルのURL ({program_name}):")
-                for url in block_urls:
-                    logger.info(f"{url} を開きます")
-                    webbrowser.open(url)
-                    time.sleep(2)
-            else:
-                logger.info(f"出力ファイルに {program_name} のURLが見つかりませんでした")
+    block_urls = []
+    for line in lines:
+        url_match = re.search(r'https?://[^\s]+', line)
+        if url_match:
+            block_urls.append(url_match.group(0))
+
+    processed = False
+    if program_name in nhk_programs:
+        processed = open_urls_from_config(nhk_programs, program_name, block_urls)
+    elif program_name in tvtokyo_programs:
+        processed = open_urls_from_config(tvtokyo_programs, program_name, block_urls)
+    else:
+        logger.warning(f"番組 {program_name} は設定ファイルに存在しません")
+        # 設定ファイルに存在しない場合、block_urls が空でない場合にのみURLを開く
+        if block_urls:
+            logger.info(f"出力ファイルのURL ({program_name}):")
+            for url in block_urls:
+                logger.info(f"{url} を開きます")
+                webbrowser.open(url)
+            processed = True
+
+    if processed:
+        time.sleep(2)
 
 def main():
     """メイン関数"""
@@ -122,27 +117,17 @@ def main():
         sys.exit(1)
 
     date_input = sys.argv[1]
+    output_dir = 'output'
+    output_file_path = os.path.join(output_dir, f"{date_input}.txt")
 
     nhk_config_path = 'ini/nhk_config.ini'
     tvtokyo_config_path = 'ini/tvtokyo_config.ini'
-    output_dir = 'output'
-
-    output_file_path = os.path.join(output_dir, f"{date_input}.txt")
 
     try:
-        nhk_config = load_config(nhk_config_path)
-        tvtokyo_config = load_config(tvtokyo_config_path)
+        nhk_programs = parse_programs_config(nhk_config_path)
+        tvtokyo_programs = parse_programs_config(tvtokyo_config_path)
     except Exception as e:
         logger.error(f"設定ファイルの読み込みに失敗しました: {e}")
-        sys.exit(1)
-
-    nhk_programs = parse_programs_config(nhk_config_path)
-    tvtokyo_programs = parse_programs_config(tvtokyo_config_path)
-    
-    try:
-        output_urls = extract_urls_from_file(output_file_path)
-    except Exception as e:
-        logger.error(f"URLの抽出に失敗しました: {e}")
         sys.exit(1)
 
     try:
