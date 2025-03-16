@@ -7,6 +7,38 @@ import time
 from datetime import datetime
 import pytz
 
+# 定数定義
+class Constants:
+    """定数を定義するクラス"""
+    class WebDriver:
+        """WebDriver関連の定数"""
+        LOG_LEVEL = "ERROR"  # Seleniumのログレベル
+
+    class Time:
+        """時間関連の定数"""
+        DEFAULT_HOUR = 25  # 時間が見つからない場合のデフォルト値（ソートの最後になる）
+        DEFAULT_MINUTE = 0
+        SLEEP_SECONDS = 2 # URLを開く際の待機時間
+
+    class Program:
+        """番組関連の定数"""
+        WBS_PROGRAM_NAME = "WBS"
+
+    class Character:
+        """文字関連の定数"""
+        FULL_WIDTH_CHAR_WEIGHT = 2
+        HALF_WIDTH_CHAR_WEIGHT = 1
+        URL_CHAR_WEIGHT = 11.5
+
+    class Format:
+        """フォーマット関連の定数"""
+        DATE_FORMAT = "%Y%m%d"
+        DATE_FORMAT_YYYYMMDD = "%Y.%m.%d"
+        DATETIME_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
+
+
+logger = logging.getLogger(__name__)
+
 def setup_logger(name: str = __name__) -> logging.Logger:
     """ロガーを設定する"""
     logger = logging.getLogger(name)
@@ -41,17 +73,16 @@ class WebDriverManager:
 
     def __init__(self, options=None):
         self.options = options or self.default_options()
-        self.driver = None  # 初期化時にdriverはNone
+        self.driver: webdriver.Chrome | None = None
 
-    @staticmethod
-    def default_options():
+    def default_options(self):
         """デフォルトのChromeオプションを設定する"""
         options = Options()
         options.add_argument("--headless")
         options.add_argument("--disable-gpu")
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
-        options.add_argument("--log-level=ERROR")  # SeleniumのログレベルをERRORに設定
+        options.add_argument(f"--log-level={Constants.WebDriver.LOG_LEVEL}")  # Seleniumのログレベルを設定
         return options
 
     def __enter__(self):
@@ -70,22 +101,15 @@ class WebDriverManager:
             self.driver.quit()
             logging.getLogger(__name__).info("Chrome WebDriverを終了しました。")
 
-def parse_programs_config(config_path: str) -> dict:
+def parse_programs_config(config_path: str) -> dict | None:
     """
     設定ファイルを読み込んで番組情報を辞書形式で返す。
 
     Args:
         config_path: 設定ファイルのパス。
-        broadcaster_type: 'nhk', 'tvtokyo', または None。
-                           None の場合は、ファイルの種類を自動判別。
 
     Returns:
-        番組情報を格納した辞書。
-        {
-            "番組名1": {"url": "...", "channel": "...", "time": "..."},
-            "番組名2": {"url": "...", "channel": "...", "time": "..."},
-            ...
-        }
+        番組情報を格納した辞書。ファイルの種類を判別できない場合は、None
     """
     config = load_config(config_path)
     programs = {}
@@ -99,7 +123,7 @@ def parse_programs_config(config_path: str) -> dict:
         broadcaster_type = "tvtokyo"
     else:
         logger.error(f"設定ファイルの種類を判別できません: {config_path}")
-        return {}  # または例外を投げる
+        return None  # または例外を投げる
 
     for section in config.sections():
         if section.startswith('program_'):
@@ -112,14 +136,14 @@ def parse_programs_config(config_path: str) -> dict:
                     programs[program_name] = {"url": url, "channel": channel}
                 elif broadcaster_type == 'tvtokyo':
                     url = config.get(section, 'url').strip()
-                    time = config.get(section, 'time').strip()
+                    time_str = config.get(section, 'time').strip()
                     # WBS の URL を特別扱い (リストとして保持)
-                    if program_name == "WBS":
-                        if "WBS" not in programs:
-                            programs["WBS"] = {"urls": [], "time": time, "name": "WBS"}
-                        programs["WBS"]["urls"].append(url)
+                    if program_name == Constants.Program.WBS_PROGRAM_NAME:
+                        if Constants.Program.WBS_PROGRAM_NAME not in programs:
+                            programs[Constants.Program.WBS_PROGRAM_NAME] = {"urls": [], "time": time_str, "name": Constants.Program.WBS_PROGRAM_NAME}
+                        programs[Constants.Program.WBS_PROGRAM_NAME]["urls"].append(url)
                     else:
-                        programs[program_name] = {"url": url, "time": time, "name": program_name}
+                        programs[program_name] = {"url": url, "time": time_str, "name": program_name}
                 logger.debug(f"{broadcaster_type} 番組設定を解析しました: {program_name}")
 
             except configparser.NoOptionError as e:
@@ -151,20 +175,23 @@ def extract_time_from_block(block: str, starts_with: str = "") -> tuple[int, int
             time_str = time_match.group(1)
             hour, minute = map(int, time_str.split(':'))
             return hour, minute
-    return 25, 0  # 時間が見つからない場合はソート順を最後にする
+    return Constants.Time.DEFAULT_HOUR, Constants.Time.DEFAULT_MINUTE
 
 def sort_blocks_by_time(blocks: list[str]) -> list[str]:
     """番組ブロックを放送時間順にソートする"""
-    return sorted(blocks, key=lambda block: extract_time_from_block(block))
+    def get_sort_key(block: str) -> tuple[int, int]:
+        """ソート用のキーを取得する"""
+        return extract_time_from_block(block)
+    return sorted(blocks, key=get_sort_key)
 
 def count_characters(text: str) -> int:
     """全角文字を2文字、半角文字を1文字としてカウントする"""
     count = 0
     for char in text:
         if ord(char) > 255:  # 全角文字判定
-            count += 2
+            count += Constants.Character.FULL_WIDTH_CHAR_WEIGHT
         else:
-            count += 1
+            count += Constants.Character.HALF_WIDTH_CHAR_WEIGHT
     return count
 
 def count_tweet_length(text):
@@ -176,7 +203,7 @@ def count_tweet_length(text):
     text_length = count_characters(text)
 
     # URLを11.5文字として計算
-    url_length = 11.5 * len(urls)
+    url_length = Constants.Character.URL_CHAR_WEIGHT * len(urls)
 
     # 全角・半角文字とURLを考慮した長さを返す
     total_length = text_length - sum(len(url) for url in urls) + url_length
@@ -184,7 +211,7 @@ def count_tweet_length(text):
 
 def to_jst_datetime(date_str: str) -> datetime:
     """YYYYMMDD形式の文字列を日本時間(JST)のdatetimeオブジェクトに変換"""
-    date_obj = datetime.strptime(date_str, "%Y%m%d")
+    date_obj = datetime.strptime(date_str, Constants.Format.DATE_FORMAT)
     jst = pytz.timezone('Asia/Tokyo')
     jst_datetime = jst.localize(date_obj)
     return jst_datetime
@@ -192,9 +219,9 @@ def to_jst_datetime(date_str: str) -> datetime:
 def to_utc_isoformat(jst_datetime: datetime) -> str:
     """日本時間(JST)のdatetimeオブジェクトをUTCのISOフォーマット文字列に変換"""
     utc_datetime = jst_datetime.astimezone(pytz.utc)
-    utc_iso = utc_datetime.strftime("%Y-%m-%dT%H:%M:%SZ")
+    utc_iso = utc_datetime.strftime(Constants.Format.DATETIME_FORMAT)
     return utc_iso
 
 def format_date(target_date: str) -> str:
     """日付をフォーマットする (YYYYMMDD -> YYYY.MM.DD)"""
-    return f"{target_date[:4]}.{target_date[4:6]}.{target_date[6:8]}"
+    return datetime.strptime(target_date, Constants.Format.DATE_FORMAT).strftime(Constants.Format.DATE_FORMAT_YYYYMMDD)

@@ -3,7 +3,7 @@ import webbrowser
 import re
 import sys
 import time
-from common.utils import load_config, setup_logger, parse_programs_config
+from common.utils import load_config, setup_logger, parse_programs_config, Constants
 
 logger = setup_logger(__name__)
 
@@ -58,12 +58,12 @@ def open_urls_from_config(config_programs: dict, program_name: str, block_urls: 
         return False  # 異常終了 (設定ミス)
 
     # WBSの特殊処理
-    if program_name == "WBS":
+    if program_name == Constants.Program.WBS_PROGRAM_NAME:
         for detail_url in block_urls:
             if "feature" in detail_url or "trend_tamago" in detail_url:
                 logger.info(f"{detail_url} を開きます")
                 webbrowser.open(detail_url)
-                time.sleep(2)  # 各詳細ページを開いた後に待機
+                time.sleep(Constants.Time.SLEEP_SECONDS)  # 各詳細ページを開いた後に待機
         return True  # WBS はここで処理終了
 
     # 一覧ページを開く
@@ -108,7 +108,7 @@ def process_program_block(block: str, nhk_programs: dict, tvtokyo_programs: dict
             processed = True
 
     if processed:
-        time.sleep(2)
+        time.sleep(Constants.Time.SLEEP_SECONDS)
 
 def main():
     """メイン関数"""
