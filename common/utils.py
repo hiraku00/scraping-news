@@ -1,3 +1,4 @@
+# common/utils.py
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 import logging
@@ -6,6 +7,10 @@ import re
 import time
 from datetime import datetime
 import pytz
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
 # 定数定義
 class Constants:
@@ -19,6 +24,7 @@ class Constants:
         DEFAULT_HOUR = 25  # 時間が見つからない場合のデフォルト値（ソートの最後になる）
         DEFAULT_MINUTE = 0
         SLEEP_SECONDS = 2 # URLを開く際の待機時間
+        DEFAULT_TIMEOUT = 10 # デフォルトのタイムアウト時間
 
     class Program:
         """番組関連の定数"""
@@ -36,9 +42,6 @@ class Constants:
         DATE_FORMAT_YYYYMMDD = "%Y.%m.%d"
         DATETIME_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
-
-logger = logging.getLogger(__name__)
-
 def setup_logger(name: str = __name__) -> logging.Logger:
     """ロガーを設定する"""
     logger = logging.getLogger(name)
@@ -50,9 +53,6 @@ def setup_logger(name: str = __name__) -> logging.Logger:
         formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
         console_handler.setFormatter(formatter)
         logger.addHandler(console_handler)
-
-    # ルートロガーのレベルをERRORに設定（ルートロガーのハンドラは削除しない）
-    # logging.getLogger().setLevel(logging.ERROR) # コメントアウト or 削除
 
     logger.info("ロガーを設定しました。")
     return logger
@@ -225,3 +225,63 @@ def to_utc_isoformat(jst_datetime: datetime) -> str:
 def format_date(target_date: str) -> str:
     """日付をフォーマットする (YYYYMMDD -> YYYY.MM.DD)"""
     return datetime.strptime(target_date, Constants.Format.DATE_FORMAT).strftime(Constants.Format.DATE_FORMAT_YYYYMMDD)
+
+def _extract_program_time(driver: webdriver.Chrome, program_title: str, episode_url: str, channel: str, max_retries: int = 3, retry_interval: int = 1) -> str:
+    """番組詳細ページから放送時間を抽出する"""
+    logger = setup_logger(__name__)  # ロガーをセットアップ
+
+    if program_title == "国際報道 2025":
+        return f"({channel} 22:00-22:45)"
+
+    for retry in range(max_retries):
+        try:
+            time_element = WebDriverWait(driver, Constants.Time.DEFAULT_TIMEOUT).until(
+                EC.presence_of_element_located((By.CLASS_NAME, "stream_panel--info--meta"))
+            )
+            time_text = time_element.text.strip()
+            start_ampm, start_time, end_ampm, end_time = _extract_time_info(time_text)
+            if start_time and end_time:
+                start_time_24h = _convert_to_24h(start_ampm, start_time)
+                end_time_24h = _convert_to_24h(end_ampm, end_time)
+                return f"({channel} {start_time_24h}-{end_time_24h})"
+            else:
+                logger.warning(f"時間の取得に失敗しました。取得した文字列: {time_text} - {program_title}, {episode_url}")
+                return "（放送時間取得失敗）"
+        except (TimeoutException, NoSuchElementException) as e:
+            logger.warning(f"要素が見つかりませんでした (リトライ {retry+1}/{max_retries}): {e} - {program_title}, {episode_url}")
+            if retry < max_retries - 1:
+                time.sleep(retry_interval)
+            continue
+        except Exception as e:
+            logger.error(f"放送時間情報の抽出に失敗しました: {e} - {program_title}, {episode_url}")
+            return "（放送時間取得失敗）"
+
+    logger.error(f"最大リトライ回数を超えました: {program_title}, {episode_url}")
+    return "（放送時間取得失敗）"
+
+def _extract_time_info(time_text: str) -> tuple[str | None, str | None, str | None, str | None]:
+    """時刻情報を含む文字列から、午前/午後、時刻を抽出する"""
+    match = re.search(r'((午前|午後)?(\d{1,2}:\d{2}))-((午前|午後)?(\d{1,2}:\d{2}))', time_text)
+    if match:
+        start_ampm = match.group(2)
+        start_time = match.group(3)
+        end_ampm = match.group(5)
+        end_time = match.group(6)
+        return start_ampm, start_time, end_ampm, end_time
+    else:
+        return None, None, None, None
+
+def _convert_to_24h(ampm: str | None, time_str: str) -> str:
+    """時刻を24時間表記に変換する"""
+    hour, minute = map(int, time_str.split(":"))
+    if ampm == "午後" and hour != 12:
+        hour += 12
+    if ampm == "午前" and hour == 12:
+        hour = 0
+    return f"{hour:02}:{minute:02}"
+
+def format_program_time(program_name: str, weekday: int, default_time: str) -> str:
+    """番組時間をフォーマットする"""
+    if program_name.startswith("WBS"):
+        return "(テレ東 22:00~22:58)" if weekday < 4 else "(テレ東 23:00~23:58)"
+    return f"(テレ東 {default_time})"

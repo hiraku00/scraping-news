@@ -9,27 +9,28 @@ import time
 import multiprocessing
 import re
 from selenium.common.exceptions import TimeoutException, NoSuchElementException, StaleElementReferenceException
-from common.utils import setup_logger, load_config, WebDriverManager, parse_programs_config, sort_blocks_by_time, format_date
+from common.utils import setup_logger, load_config, WebDriverManager, parse_programs_config, sort_blocks_by_time, Constants
 import logging
 from common.base_scraper import BaseScraper
+from common import utils  # 追加
 
-# デフォルトのタイムアウト時間
-DEFAULT_TIMEOUT = 10
+# utils.py から関数をインポート
+from common.utils import (
+    _extract_program_time,
+    _extract_time_info,
+    _convert_to_24h,
+    format_date,
+    format_program_time
+)
 
-# Selenium関連のヘルパークラス
-class CustomExpectedConditions:
-    """Seleniumのカスタム条件"""
-    @staticmethod
-    def page_is_ready():
-        """ページが完全に読み込まれたことを確認する"""
-        return lambda driver: driver.execute_script("return document.readyState") == "complete"
+# CustomExpectedConditions.pyをcommonに作成
+from common.CustomExpectedConditions import CustomExpectedConditions
 
-class NHKScraper(BaseScraper):  # BaseScraper を継承
+class NHKScraper(BaseScraper):
     """NHKの番組情報をスクレイピングするクラス"""
 
     def __init__(self, config):
-        super().__init__(config)  # 基底クラスの __init__ を呼び出す
-        self.driver = None #削除
+        super().__init__(config)
 
     def get_program_info(self, program_name: str, target_date: str) -> str | None:
         """指定された番組の情報を取得する"""
@@ -39,14 +40,13 @@ class NHKScraper(BaseScraper):  # BaseScraper を継承
             return None
 
         with WebDriverManager() as driver:
-            self.driver = driver
             try:
                 self.logger.info(f"検索開始: {program_name}")
-                self.driver.get(program_info["url"])
+                driver.get(program_info["url"])
 
-                episode_url = self._extract_nhk_episode_info(target_date, program_name)
+                episode_url = self._extract_nhk_episode_info(driver, target_date, program_name)
                 if episode_url:
-                    formatted_output = self._get_nhk_formatted_episode_info(program_name, episode_url, program_info["channel"])
+                    formatted_output = self._get_nhk_formatted_episode_info(driver, program_name, episode_url, program_info["channel"])
                     return formatted_output
                 else:
                     self.logger.warning(f"{program_name} が見つかりませんでした - {program_info['url']}")
@@ -55,11 +55,11 @@ class NHKScraper(BaseScraper):  # BaseScraper を継承
                 self.logger.error(f"エラーが発生しました: {e} - {program_name}, {program_info['url']}")
                 return None
 
-    def _extract_nhk_episode_info(self, target_date: str, program_title: str) -> str | None:
+    def _extract_nhk_episode_info(self, driver, target_date: str, program_title: str) -> str | None:
         """NHKのエピソード情報を抽出する"""
         try:
-            WebDriverWait(self.driver, DEFAULT_TIMEOUT).until(CustomExpectedConditions.page_is_ready())
-            episodes = WebDriverWait(self.driver, DEFAULT_TIMEOUT).until(
+            WebDriverWait(driver, utils.Constants.Time.DEFAULT_TIMEOUT).until(CustomExpectedConditions.page_is_ready())
+            episodes = WebDriverWait(driver, utils.Constants.Time.DEFAULT_TIMEOUT).until(
                 EC.presence_of_all_elements_located((By.CLASS_NAME, 'gc-stream-panel-info'))
             )
             for episode in episodes:
@@ -91,19 +91,19 @@ class NHKScraper(BaseScraper):  # BaseScraper を継承
             return None
         return None
 
-    def _get_nhk_formatted_episode_info(self, program_title: str, episode_url: str, channel: str) -> str | None:
+    def _get_nhk_formatted_episode_info(self, driver, program_title: str, episode_url: str, channel: str) -> str | None:
         """NHKのエピソード情報を整形する"""
         try:
-            self.driver.get(episode_url)
-            WebDriverWait(self.driver, DEFAULT_TIMEOUT).until(CustomExpectedConditions.page_is_ready())
-            target_element = WebDriverWait(self.driver, DEFAULT_TIMEOUT).until(
+            driver.get(episode_url)
+            WebDriverWait(driver, utils.Constants.Time.DEFAULT_TIMEOUT).until(CustomExpectedConditions.page_is_ready())
+            target_element = WebDriverWait(driver, utils.Constants.Time.DEFAULT_TIMEOUT).until(
                 EC.presence_of_element_located((By.CLASS_NAME, 'title'))
             )
             episode_title = target_element.text.strip().encode('utf-8', 'ignore').decode('utf-8', 'replace')
 
             if program_title == "BSスペシャル":
                 program_time = f"({channel} 22:45-23:35)"
-                final_url = self.driver.current_url
+                final_url = driver.current_url
                 formatted_output = f"●{program_title}{program_time}\n"
                 formatted_output += f"・{episode_title}\n"
                 formatted_output += f"{final_url}\n"
@@ -112,7 +112,7 @@ class NHKScraper(BaseScraper):  # BaseScraper を継承
 
             nhk_plus_url = None
             try:
-                span_element = WebDriverWait(self.driver, DEFAULT_TIMEOUT).until(
+                span_element = WebDriverWait(driver, utils.Constants.Time.DEFAULT_TIMEOUT).until(
                     EC.presence_of_element_located((By.XPATH, '//div[@class="detailed-memo-body"]/span[contains(@class, "detailed-memo-headline")]/a[contains(text(), "NHKプラス配信はこちらからご覧ください")]'))
                 )
                 nhk_plus_url = span_element.get_attribute('href')
@@ -120,15 +120,15 @@ class NHKScraper(BaseScraper):  # BaseScraper を継承
                 pass
 
             try:
-                eyecatch_div = WebDriverWait(self.driver, DEFAULT_TIMEOUT).until(
+                eyecatch_div = WebDriverWait(driver, utils.Constants.Time.DEFAULT_TIMEOUT).until(
                     EC.presence_of_element_located((By.CLASS_NAME, 'gc-images.is-medium.eyecatch'))
                 )
                 a_tag = eyecatch_div.find_element(By.TAG_NAME, 'a')
                 image_link = a_tag.get_attribute('href')
-                self.driver.get(image_link)
-                WebDriverWait(self.driver, DEFAULT_TIMEOUT).until(CustomExpectedConditions.page_is_ready())
-                program_time = self._extract_program_time(program_title, episode_url, channel)
-                final_url = self.driver.current_url
+                driver.get(image_link)
+                WebDriverWait(driver, utils.Constants.Time.DEFAULT_TIMEOUT).until(CustomExpectedConditions.page_is_ready())
+                program_time = utils._extract_program_time(driver, program_title, episode_url, channel)
+                final_url = driver.current_url
                 formatted_output = f"●{program_title}{program_time}\n"
                 formatted_output += f"・{episode_title}\n"
 
@@ -141,7 +141,7 @@ class NHKScraper(BaseScraper):  # BaseScraper を継承
 
             except Exception as e:
                 try:
-                    iframe = WebDriverWait(self.driver, DEFAULT_TIMEOUT).until(
+                    iframe = WebDriverWait(driver, utils.Constants.Time.DEFAULT_TIMEOUT).until(
                         EC.presence_of_element_located((By.ID, 'eyecatchIframe'))
                     )
                     iframe_src = iframe.get_attribute('src')
@@ -149,9 +149,9 @@ class NHKScraper(BaseScraper):  # BaseScraper を継承
                     if match:
                         extracted_id = match.group(1)
                         final_url = f"https://plus.nhk.jp/watch/st/{extracted_id}"
-                        self.driver.get(final_url)
-                        WebDriverWait(self.driver, DEFAULT_TIMEOUT).until(CustomExpectedConditions.page_is_ready())
-                        program_time = self._extract_program_time(program_title, episode_url, channel)
+                        driver.get(final_url)
+                        WebDriverWait(driver, utils.Constants.Time.DEFAULT_TIMEOUT).until(CustomExpectedConditions.page_is_ready())
+                        program_time = utils._extract_program_time(driver, program_title, episode_url, channel)
                         formatted_output = f"●{program_title}{program_time}\n"
                         formatted_output += f"・{episode_title}\n"
                         formatted_output += f"{final_url}\n"
@@ -161,8 +161,8 @@ class NHKScraper(BaseScraper):  # BaseScraper を継承
                         self.logger.error(f"iframeからIDを抽出できませんでした: {program_title}, {episode_url} - {e}")
                         return None
                 except Exception as iframe_e:
-                    self.logger.error(f"gc-images.is-medium.eyecatch も iframe も見つかりませんでした: {program_title}, {episode_url} - {str(iframe_e)}") # 例外メッセージのみを渡す
-                    program_time = self._extract_program_time(program_title, episode_url, channel)
+                    self.logger.error(f"gc-images.is-medium.eyecatch も iframe も見つかりませんでした: {program_title}, {episode_url} - {str(iframe_e)}")
+                    program_time = utils._extract_program_time(driver, program_title, episode_url, channel)
                     formatted_output = f"●{program_title}{program_time}\n"
                     formatted_output += f"・{episode_title}\n"
                     formatted_output += f"{episode_url}\n"
@@ -172,64 +172,11 @@ class NHKScraper(BaseScraper):  # BaseScraper を継承
             self.logger.error(f"エラーが発生しました: {e} - {program_title}, {episode_url}")
             return None
 
-    def _extract_program_time(self, program_title: str, episode_url: str, channel: str, max_retries: int = 3, retry_interval: int = 1) -> str:
-        """番組詳細ページから放送時間を抽出する"""
-        if program_title == "国際報道 2025":
-            return f"({channel} 22:00-22:45)"
-
-        for retry in range(max_retries):
-            try:
-                time_element = WebDriverWait(self.driver, DEFAULT_TIMEOUT).until(
-                    EC.presence_of_element_located((By.CLASS_NAME, "stream_panel--info--meta"))
-                )
-                time_text = time_element.text.strip()
-                start_ampm, start_time, end_ampm, end_time = self._extract_time_info(time_text)
-                if start_time and end_time:
-                    start_time_24h = self._convert_to_24h(start_ampm, start_time)
-                    end_time_24h = self._convert_to_24h(end_ampm, end_time)
-                    return f"({channel} {start_time_24h}-{end_time_24h})"
-                else:
-                    self.logger.warning(f"時間の取得に失敗しました。取得した文字列: {time_text} - {program_title}, {episode_url}")
-                    return "（放送時間取得失敗）"
-            except (TimeoutException, NoSuchElementException) as e:
-                self.logger.warning(f"要素が見つかりませんでした (リトライ {retry+1}/{max_retries}): {e} - {program_title}, {episode_url}")
-                if retry < max_retries - 1:
-                    time.sleep(retry_interval)
-                continue
-            except Exception as e:
-                self.logger.error(f"放送時間情報の抽出に失敗しました: {e} - {program_title}, {episode_url}")
-                return "（放送時間取得失敗）"
-
-        self.logger.error(f"最大リトライ回数を超えました: {program_title}, {episode_url}")
-        return "（放送時間取得失敗）"
-
-    def _extract_time_info(self, time_text: str) -> tuple[str | None, str | None, str | None, str | None]:
-        """時刻情報を含む文字列から、午前/午後、時刻を抽出する"""
-        match = re.search(r'((午前|午後)?(\d{1,2}:\d{2}))-((午前|午後)?(\d{1,2}:\d{2}))', time_text)
-        if match:
-            start_ampm = match.group(2)
-            start_time = match.group(3)
-            end_ampm = match.group(5)
-            end_time = match.group(6)
-            return start_ampm, start_time, end_ampm, end_time
-        else:
-            return None, None, None, None
-
-    def _convert_to_24h(self, ampm: str | None, time_str: str) -> str:
-        """時刻を24時間表記に変換する"""
-        hour, minute = map(int, time_str.split(":"))
-        if ampm == "午後" and hour != 12:
-            hour += 12
-        if ampm == "午前" and hour == 12:
-            hour = 0
-        return f"{hour:02}:{minute:02}"
-
-class TVTokyoScraper(BaseScraper):  # BaseScraper を継承
+class TVTokyoScraper(BaseScraper):
     """テレビ東京の番組情報をスクレイピングするクラス"""
 
     def __init__(self, config):
-        super().__init__(config)  # 基底クラスの __init__ を呼び出す
-        self.driver = None #削除
+        super().__init__(config)
 
     def get_program_info(self, program_name: str, target_date: str) -> str | None:
         """指定された番組の情報を取得する"""
@@ -239,24 +186,23 @@ class TVTokyoScraper(BaseScraper):  # BaseScraper を継承
             return None
 
         with WebDriverManager() as driver:
-            self.driver = driver
             try:
-                formatted_date = format_date(target_date)
+                formatted_date = utils.format_date(target_date)
                 weekday = datetime.strptime(target_date, '%Y%m%d').weekday()
-                program_time = format_program_time(program_config['name'], weekday, program_config['time'])
+                program_time = utils.format_program_time(program_config['name'], weekday, program_config['time'])
                 self.logger.info(f"検索開始: {program_name}")
 
                 if program_name == "WBS":
-                    episode_urls = self._extract_tvtokyo_episode_urls(program_config["urls"], formatted_date, program_name)
+                    episode_urls = self._extract_tvtokyo_episode_urls(driver, program_config["urls"], formatted_date, program_name)
                 else:
-                    episode_urls = self._extract_tvtokyo_episode_urls([program_config["url"]], formatted_date, program_name)
+                    episode_urls = self._extract_tvtokyo_episode_urls(driver, [program_config["url"]], formatted_date, program_name)
 
                 if not episode_urls:
                     self.logger.warning(f"{program_name} が見つかりませんでした")
                     return None
 
                 episode_details = [
-                    self._fetch_tvtokyo_episode_details(url, program_name) for url in episode_urls
+                    self._fetch_tvtokyo_episode_details(driver, url, program_name) for url in episode_urls
                 ]
 
                 # 結果の整形
@@ -265,7 +211,7 @@ class TVTokyoScraper(BaseScraper):  # BaseScraper を継承
                     if title and url:
                         formatted_output += f"・{title}\n{url}\n"
 
-                if formatted_output == f"●{program_config['name']}{program_time}\n":  # 詳細情報がない場合
+                if formatted_output == f"●{program_config['name']}{program_time}\n":
                     return None
 
                 self.logger.info(f"{program_name} の詳細情報を取得しました")
@@ -275,7 +221,7 @@ class TVTokyoScraper(BaseScraper):  # BaseScraper を継承
                 self.logger.error(f"番組情報取得中にエラー: {e} - {program_name}")
                 return None
 
-    def _extract_tvtokyo_episode_urls(self, target_urls: list[str], formatted_date: str, program_name: str) -> list[str]:
+    def _extract_tvtokyo_episode_urls(self, driver, target_urls: list[str], formatted_date: str, program_name: str) -> list[str]:
         """
         テレビ東京のエピソードURLを抽出する。
         target_urls をリストとして受け取り、各URLに対して処理を行う。
@@ -283,11 +229,11 @@ class TVTokyoScraper(BaseScraper):  # BaseScraper を継承
         all_urls = []
         for target_url in target_urls:
             try:
-                self.driver.get(target_url)
-                WebDriverWait(self.driver, DEFAULT_TIMEOUT).until(CustomExpectedConditions.page_is_ready())
+                driver.get(target_url)
+                WebDriverWait(driver, utils.Constants.Time.DEFAULT_TIMEOUT).until(CustomExpectedConditions.page_is_ready())
 
                 # 要素の存在確認（find_elements を使用）
-                episode_elements = self.driver.find_elements(By.CSS_SELECTOR, 'div[id^="News_Detail__VideoItem__"]')
+                episode_elements = driver.find_elements(By.CSS_SELECTOR, 'div[id^="News_Detail__VideoItem__"]')
                 if not episode_elements:
                     self.logger.warning(f"{program_name} のエピソード要素が見つかりませんでした - {target_url}")
                     continue  # 次のURLへ
@@ -295,8 +241,8 @@ class TVTokyoScraper(BaseScraper):  # BaseScraper を継承
                 urls = []
                 today = datetime.now().date()
                 yesterday = today - timedelta(days=1)
-                formatted_today = format_date(today.strftime('%Y%m%d'))
-                formatted_yesterday = format_date(yesterday.strftime('%Y%m%d'))
+                formatted_today = utils.format_date(today.strftime('%Y%m%d'))
+                formatted_yesterday = utils.format_date(yesterday.strftime('%Y%m%d'))
 
                 for episode in episode_elements:
                     try:
@@ -328,12 +274,12 @@ class TVTokyoScraper(BaseScraper):  # BaseScraper を継承
         self.logger.debug(f"テレビ東京のエピソードURLを抽出しました: {program_name} - {all_urls}")
         return all_urls
 
-    def _fetch_tvtokyo_episode_details(self, episode_url: str, program_name: str) -> tuple[str | None, str | None]:
+    def _fetch_tvtokyo_episode_details(self, driver, episode_url: str, program_name: str) -> tuple[str | None, str | None]:
         """テレビ東京のエピソード詳細情報を取得する"""
         try:
-            self.driver.get(episode_url)
-            WebDriverWait(self.driver, DEFAULT_TIMEOUT).until(CustomExpectedConditions.page_is_ready())
-            title_element = WebDriverWait(self.driver, DEFAULT_TIMEOUT).until(
+            driver.get(episode_url)
+            WebDriverWait(driver, utils.Constants.Time.DEFAULT_TIMEOUT).until(CustomExpectedConditions.page_is_ready())
+            title_element = WebDriverWait(driver, utils.Constants.Time.DEFAULT_TIMEOUT).until(
                 EC.presence_of_element_located((By.ID, "Live_Episode_Detail_EpisodeItemFullTitle"))
             )
             title = title_element.text.strip()
@@ -342,68 +288,6 @@ class TVTokyoScraper(BaseScraper):  # BaseScraper を継承
         except Exception as e:
             self.logger.error(f"エピソード詳細取得エラー: {e} - {program_name}, {episode_url}")
             return None, None
-
-def format_date(target_date: str) -> str:
-    """日付をフォーマットする"""
-    return f"{target_date[:4]}.{target_date[4:6]}.{target_date[6:8]}"
-
-def format_program_time(program_name: str, weekday: int, default_time: str) -> str:
-    """番組時間をフォーマットする"""
-    if program_name.startswith("WBS"):
-        return "(テレ東 22:00~22:58)" if weekday < 4 else "(テレ東 23:00~23:58)"
-    return f"(テレ東 {default_time})"
-
-def _extract_program_time(driver: webdriver.Chrome, program_title: str, episode_url: str, channel: str, max_retries: int = 3, retry_interval: int = 1) -> str:
-    """番組詳細ページから放送時間を抽出する"""
-    if program_title == "国際報道 2025":
-        return f"({channel} 22:00-22:45)"
-
-    for retry in range(max_retries):
-        try:
-            time_element = WebDriverWait(driver, DEFAULT_TIMEOUT).until(
-                EC.presence_of_element_located((By.CLASS_NAME, "stream_panel--info--meta"))
-            )
-            time_text = time_element.text.strip()
-            start_ampm, start_time, end_ampm, end_time = _extract_time_info(time_text)
-            if start_time and end_time:
-                start_time_24h = _convert_to_24h(start_ampm, start_time)
-                end_time_24h = _convert_to_24h(end_ampm, end_time)
-                return f"({channel} {start_time_24h}-{end_time_24h})"
-            else:
-                logging.getLogger(__name__).warning(f"時間の取得に失敗しました。取得した文字列: {time_text} - {program_title}, {episode_url}")
-                return "（放送時間取得失敗）"
-        except (TimeoutException, NoSuchElementException) as e:
-            logging.getLogger(__name__).warning(f"要素が見つかりませんでした (リトライ {retry+1}/{max_retries}): {e} - {program_title}, {episode_url}")
-            if retry < max_retries - 1:
-                time.sleep(retry_interval)
-            continue
-        except Exception as e:
-            logging.getLogger(__name__).error(f"放送時間情報の抽出に失敗しました: {e} - {program_title}, {episode_url}")
-            return "（放送時間取得失敗）"
-
-    logging.getLogger(__name__).error(f"最大リトライ回数を超えました: {program_title}, {episode_url}")
-    return "（放送時間取得失敗）"
-
-def _extract_time_info(time_text: str) -> tuple[str | None, str | None, str | None, str | None]:
-    """時刻情報を含む文字列から、午前/午後、時刻を抽出する"""
-    match = re.search(r'((午前|午後)?(\d{1,2}:\d{2}))-((午前|午後)?(\d{1,2}:\d{2}))', time_text)
-    if match:
-        start_ampm = match.group(2)
-        start_time = match.group(3)
-        end_ampm = match.group(5)
-        end_time = match.group(6)
-        return start_ampm, start_time, end_ampm, end_time
-    else:
-        return None, None, None, None
-
-def _convert_to_24h(ampm: str | None, time_str: str) -> str:
-    """時刻を24時間表記に変換する"""
-    hour, minute = map(int, time_str.split(":"))
-    if ampm == "午後" and hour != 12:
-        hour += 12
-    if ampm == "午前" and hour == 12:
-        hour = 0
-    return f"{hour:02}:{minute:02}"
 
 def fetch_program_info(args: tuple[str, str, dict, str]) -> str | None:
     """並列処理用のラッパー関数"""
@@ -508,7 +392,7 @@ def main():
         sorted_blocks = sort_blocks_by_time(blocks)
         logger.info(f"番組ブロックのソート完了（経過時間：{get_elapsed_time(start_time):.0f}秒）")
 
-        write_results_to_file(sorted_blocks, output_file_path, logger) #loggerを渡す
+        write_results_to_file(sorted_blocks, output_file_path, logger)
 
         print(f"結果を {output_file_path} に出力しました。（経過時間：{get_elapsed_time(start_time):.0f}秒）")
 
