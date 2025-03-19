@@ -44,8 +44,13 @@ def sort_and_merge_text(file1_path: str, file2_path: str, output_path: str, befo
 
     try:
         with open(before_merge_path, 'r', encoding='utf-8') as f: #リネーム後のファイルを読む
-            combined_lines.extend(f.readlines())
+            combined_lines = f.readlines() # 一旦リストに読み込む
         logger.info(f"{before_merge_path} を読み込みました。")
+
+        # combined_lines の末尾が改行で終わっていない場合に改行を追加
+        if combined_lines and not combined_lines[-1].endswith('\n'):
+            combined_lines[-1] = combined_lines[-1] + '\n'  # 既存の最後の要素に改行を追加
+
     except Exception as e:
         logger.error(f"{before_merge_path} の読み込み中にエラーが発生しました: {e}")
         raise
@@ -54,7 +59,13 @@ def sort_and_merge_text(file1_path: str, file2_path: str, output_path: str, befo
     if os.path.exists(file1_path):
         try:
             with open(file1_path, 'r', encoding='utf-8') as f:
-                combined_lines.extend(f.readlines())
+                file1_lines = f.readlines() # file1_pathも一旦リストとして読み込む
+
+            # file1_linesの先頭が改行で始まっていない場合、かつcombined_linesが空でない場合に改行を追加
+            if file1_lines and not file1_lines[0].startswith('\n') and combined_lines:
+                combined_lines.append('\n')
+
+            combined_lines.extend(file1_lines) # extendで結合
             logger.info(f"{file1_path} を読み込みました。")
         except Exception as e:
             logger.error(f"{file1_path} の読み込み中にエラーが発生しました: {e}")
@@ -75,14 +86,18 @@ def sort_and_merge_text(file1_path: str, file2_path: str, output_path: str, befo
 
     # ブロックをソート
     sorted_blocks = sort_blocks_by_time(blocks)
-    sorted_lines = []
-    for block in sorted_blocks:
-        sorted_lines.extend(block.splitlines(True))
 
-    # マージされたテキストを指定されたパスに出力
+    # マージされたテキストを作成（ブロックの末尾が改行でなければ改行を追加）
+    merged_text = ""
+    for block in sorted_blocks:
+        merged_text += block
+        if not block.endswith('\n'):  # ブロックの末尾が改行でなければ
+            merged_text += '\n'       # 改行を追加
+
+    # マージされたテキストを指定されたパスに出力（最後に改行を1つ追加）
     try:
         with open(output_path, 'w', encoding='utf-8') as f:
-            f.writelines(sorted_lines)
+            f.write(merged_text)
         logger.info(f"マージされたテキストを {output_path} に出力しました。")
     except Exception as e:
         logger.error(f"{output_path} への書き込み中にエラーが発生しました: {e}")
