@@ -136,83 +136,125 @@ class NHKScraper(BaseScraper):
     def _get_nhk_formatted_episode_info(self, driver, program_title: str, episode_url: str, channel: str) -> str | None:
         """NHKのエピソード情報を整形する"""
         try:
-            driver.get(episode_url)
-            WebDriverWait(driver, utils.Constants.Time.DEFAULT_TIMEOUT).until(CustomExpectedConditions.page_is_ready())
-            target_element = WebDriverWait(driver, utils.Constants.Time.DEFAULT_TIMEOUT).until(
-                EC.presence_of_element_located((By.CLASS_NAME, 'title'))
-            )
-            episode_title = target_element.text.strip().encode('utf-8', 'ignore').decode('utf-8', 'replace')
+            self._get_nhk_episode_detail_page(driver, episode_url)
+            episode_title = self._extract_episode_title(driver)
+            if not episode_title:
+                return None
 
             if program_title == "BSスペシャル":
-                program_time = f"({channel} 22:45-23:35)"
-                final_url = driver.current_url
-                formatted_output = f"●{program_title}{program_time}\n"
-                formatted_output += f"・{episode_title}\n"
-                formatted_output += f"{final_url}\n"
-                self.logger.info(f"{program_title} の詳細情報を取得しました")
+                return self._format_bs_special_output(driver, program_title, channel, episode_url, episode_title)
+
+            nhk_plus_url = self._extract_nhk_plus_url(driver)
+
+            formatted_output = self._process_eyecatch_or_iframe(driver, program_title, episode_url, channel, episode_title, nhk_plus_url)
+            if formatted_output:
                 return formatted_output
 
-            nhk_plus_url = None
-            try:
-                span_element = WebDriverWait(driver, utils.Constants.Time.DEFAULT_TIMEOUT).until(
-                    EC.presence_of_element_located((By.XPATH, '//div[@class="detailed-memo-body"]/span[contains(@class, "detailed-memo-headline")]/a[contains(text(), "NHKプラス配信はこちらからご覧ください")]'))
-                )
-                nhk_plus_url = span_element.get_attribute('href')
-            except (NoSuchElementException, TimeoutException):
-                pass
-
-            try:
-                eyecatch_div = WebDriverWait(driver, utils.Constants.Time.DEFAULT_TIMEOUT).until(
-                    EC.presence_of_element_located((By.CLASS_NAME, 'gc-images.is-medium.eyecatch'))
-                )
-                a_tag = eyecatch_div.find_element(By.TAG_NAME, 'a')
-                image_link = a_tag.get_attribute('href')
-                driver.get(image_link)
-                WebDriverWait(driver, utils.Constants.Time.DEFAULT_TIMEOUT).until(CustomExpectedConditions.page_is_ready())
-                program_time = utils._extract_program_time(driver, program_title, episode_url, channel)
-                final_url = driver.current_url
-                formatted_output = f"●{program_title}{program_time}\n"
-                formatted_output += f"・{episode_title}\n"
-
-                if nhk_plus_url:
-                    formatted_output += f"{nhk_plus_url}\n"
-                else:
-                    formatted_output += f"{final_url}\n"
-                self.logger.info(f"{program_title} の詳細情報を取得しました")
-                return formatted_output
-
-            except Exception as e:
-                try:
-                    iframe = WebDriverWait(driver, utils.Constants.Time.DEFAULT_TIMEOUT).until(
-                        EC.presence_of_element_located((By.ID, 'eyecatchIframe'))
-                    )
-                    iframe_src = iframe.get_attribute('src')
-                    match = re.search(r'/st/(.*?)\?', iframe_src)
-                    if match:
-                        extracted_id = match.group(1)
-                        final_url = f"https://plus.nhk.jp/watch/st/{extracted_id}"
-                        driver.get(final_url)
-                        WebDriverWait(driver, utils.Constants.Time.DEFAULT_TIMEOUT).until(CustomExpectedConditions.page_is_ready())
-                        program_time = utils._extract_program_time(driver, program_title, episode_url, channel)
-                        formatted_output = f"●{program_title}{program_time}\n"
-                        formatted_output += f"・{episode_title}\n"
-                        formatted_output += f"{final_url}\n"
-                        self.logger.info(f"iframeからURLを生成しました: {final_url} - {program_title}")
-                        return formatted_output
-                    else:
-                        self.logger.error(f"iframeからIDを抽出できませんでした: {program_title}, {episode_url} - {e}")
-                        return None
-                except Exception as iframe_e:
-                    self.logger.error(f"gc-images.is-medium.eyecatch も iframe も見つかりませんでした: {program_title}, {episode_url} - {str(iframe_e)}")
-                    program_time = utils._extract_program_time(driver, program_title, episode_url, channel)
-                    formatted_output = f"●{program_title}{program_time}\n"
-                    formatted_output += f"・{episode_title}\n"
-                    formatted_output += f"{episode_url}\n"
-                    return formatted_output
+            # eyecatch, iframe どちらの処理も失敗した場合のフォールバック処理
+            return self._format_fallback_output(driver, program_title, episode_url, channel, episode_title)
 
         except Exception as e:
             self.logger.error(f"エラーが発生しました: {e} - {program_title}, {episode_url}")
             return None
+
+    def _get_nhk_episode_detail_page(self, driver, episode_url: str):
+        """エピソード詳細ページに遷移し、ページの準備完了を待つ"""
+        driver.get(episode_url)
+        WebDriverWait(driver, utils.Constants.Time.DEFAULT_TIMEOUT).until(CustomExpectedConditions.page_is_ready())
+
+    def _extract_episode_title(self, driver) -> str | None:
+        """エピソードタイトルを抽出する"""
+        try:
+            target_element = WebDriverWait(driver, utils.Constants.Time.DEFAULT_TIMEOUT).until(
+                EC.presence_of_element_located((By.CLASS_NAME, 'title'))
+            )
+            episode_title = target_element.text.strip().encode('utf-8', 'ignore').decode('utf-8', 'replace')
+            return episode_title
+        except (TimeoutException, NoSuchElementException) as e:
+            self.logger.warning(f"エピソードタイトルの取得に失敗しました: {e}")
+            return None
+
+    def _format_bs_special_output(self, driver, program_title: str, channel: str, episode_url: str, episode_title: str) -> str:
+        """BSスペシャル用の出力フォーマット"""
+        program_time = f"({channel} 22:45-23:35)"
+        final_url = driver.current_url
+        formatted_output = f"●{program_title}{program_time}\n"
+        formatted_output += f"・{episode_title}\n"
+        formatted_output += f"{final_url}\n"
+        self.logger.info(f"{program_title} の詳細情報を取得しました")
+        return formatted_output
+
+    def _extract_nhk_plus_url(self, driver) -> str | None:
+        """NHKプラスのURLを抽出する"""
+        try:
+            span_element = WebDriverWait(driver, utils.Constants.Time.DEFAULT_TIMEOUT).until(
+                EC.presence_of_element_located((By.XPATH, '//div[@class="detailed-memo-body"]/span[contains(@class, "detailed-memo-headline")]/a[contains(text(), "NHKプラス配信はこちらからご覧ください")]'))
+            )
+            nhk_plus_url = span_element.get_attribute('href')
+            return nhk_plus_url
+        except (NoSuchElementException, TimeoutException):
+            return None
+
+    def _process_eyecatch_or_iframe(self, driver, program_title: str, episode_url: str, channel: str, episode_title: str, nhk_plus_url: str | None) -> str | None:
+        """eyecatch画像またはiframeからURLを取得して整形する"""
+        final_url = None
+        try:
+            final_url = self._process_eyecatch_image(driver, program_title, episode_url)
+        except Exception as eyecatch_e:
+            try:
+                final_url = self._process_iframe_url(driver, program_title, episode_url)
+            except Exception as iframe_e:
+                self.logger.error(f"gc-images.is-medium.eyecatch も iframe も見つかりませんでした: {program_title}, {episode_url} - eyecatch_e: {str(eyecatch_e)}, iframe_e: {str(iframe_e)}")
+                return None # eyecatch, iframe どちらの処理も失敗
+
+        if final_url: # eyecatch または iframe からURLを取得できた場合
+            program_time = utils._extract_program_time(driver, program_title, episode_url, channel)
+            formatted_output = f"●{program_title}{program_time}\n"
+            formatted_output += f"・{episode_title}\n"
+            if nhk_plus_url:
+                formatted_output += f"{nhk_plus_url}\n"
+            else:
+                formatted_output += f"{final_url}\n"
+            self.logger.info(f"{program_title} の詳細情報を取得しました")
+            return formatted_output
+        return None # eyecatch, iframe どちらからもURLを取得できなかった場合
+
+    def _process_eyecatch_image(self, driver, program_title: str, episode_url: str) -> str | None:
+        """eyecatch画像からURLを取得する"""
+        eyecatch_div = WebDriverWait(driver, utils.Constants.Time.DEFAULT_TIMEOUT).until(
+            EC.presence_of_element_located((By.CLASS_NAME, 'gc-images.is-medium.eyecatch'))
+        )
+        a_tag = eyecatch_div.find_element(By.TAG_NAME, 'a')
+        image_link = a_tag.get_attribute('href')
+        driver.get(image_link)
+        WebDriverWait(driver, utils.Constants.Time.DEFAULT_TIMEOUT).until(CustomExpectedConditions.page_is_ready())
+        return driver.current_url
+
+    def _process_iframe_url(self, driver, program_title: str, episode_url: str) -> str | None:
+        """iframeからURLを取得する"""
+        iframe = WebDriverWait(driver, utils.Constants.Time.DEFAULT_TIMEOUT).until(
+            EC.presence_of_element_located((By.ID, 'eyecatchIframe'))
+        )
+        iframe_src = iframe.get_attribute('src')
+        match = re.search(r'/st/(.*?)\?', iframe_src)
+        if match:
+            extracted_id = match.group(1)
+            final_url = f"https://plus.nhk.jp/watch/st/{extracted_id}"
+            driver.get(final_url)
+            WebDriverWait(driver, utils.Constants.Time.DEFAULT_TIMEOUT).until(CustomExpectedConditions.page_is_ready())
+            self.logger.info(f"iframeからURLを生成しました: {final_url} - {program_title}")
+            return final_url
+        else:
+            self.logger.error(f"iframeからIDを抽出できませんでした: {program_title}, {episode_url}")
+            return None
+
+    def _format_fallback_output(self, driver, program_title: str, episode_url: str, channel: str, episode_title: str) -> str:
+        """eyecatch, iframe 処理失敗時のフォールバック出力"""
+        program_time = utils._extract_program_time(driver, program_title, episode_url, channel)
+        formatted_output = f"●{program_title}{program_time}\n"
+        formatted_output += f"・{episode_title}\n"
+        formatted_output += f"{episode_url}\n"
+        return formatted_output
 
 class TVTokyoScraper(BaseScraper):
     """テレビ東京の番組情報をスクレイピングするクラス"""
