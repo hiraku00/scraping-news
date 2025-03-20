@@ -58,38 +58,80 @@ class NHKScraper(BaseScraper):
     def _extract_nhk_episode_info(self, driver, target_date: str, program_title: str) -> str | None:
         """NHKのエピソード情報を抽出する"""
         try:
+            episodes = self._find_episode_elements(driver, program_title)
+            if not episodes:
+                return None
+
+            target_date_dt = datetime.strptime(target_date, '%Y%m%d')
+
+            for episode in episodes:
+                episode_date = self._extract_episode_date(episode, program_title)
+                if episode_date:
+                    if episode_date == target_date_dt:
+                        episode_url = self._extract_episode_url(episode, program_title)
+                        return episode_url
+            return None  # 一致するエピソードが見つからなかった場合
+
+        except Exception as e:
+            self.logger.error(f"エピソード情報抽出中にエラーが発生しました: {e} - {program_title}")
+            return None
+
+    def _find_episode_elements(self, driver, program_title: str):
+        """エピソード要素リストを取得する"""
+        try:
             WebDriverWait(driver, utils.Constants.Time.DEFAULT_TIMEOUT).until(CustomExpectedConditions.page_is_ready())
             episodes = WebDriverWait(driver, utils.Constants.Time.DEFAULT_TIMEOUT).until(
                 EC.presence_of_all_elements_located((By.CLASS_NAME, 'gc-stream-panel-info'))
             )
-            for episode in episodes:
-                try:
-                    date_element = episode.find_element(By.CLASS_NAME, 'gc-stream-panel-info-title-firstbroadcastdate-date')
-                    year_element = date_element.find_element(By.CLASS_NAME, 'gc-atom-text-for-date-year')
-                    day_element = date_element.find_element(By.CLASS_NAME, 'gc-atom-text-for-date-day')
-                    year_text = year_element.text.strip()
-                    day_text = day_element.text.strip()
-                    date_text = f"{year_text}{day_text}"
-                except NoSuchElementException:
-                    try:
-                        date_element = episode.find_element(By.CLASS_NAME, 'gc-stream-panel-info-title')
-                        date_text = date_element.text.strip()
-                    except NoSuchElementException:
-                        continue
-                match = re.search(r'(\d{4})年(\d{1,2})月(\d{1,2})日', date_text)
-                if match:
-                    year, month, day = match.groups()
-                    episode_date = datetime(int(year), int(month), int(day))
-                    target_date_dt = datetime.strptime(target_date, '%Y%m%d')
-
-                    if episode_date == target_date_dt:
-                        episode_url = episode.find_element(By.TAG_NAME, 'a').get_attribute("href")
-                        self.logger.debug(f"エピソード情報を抽出しました: {program_title} - {episode_url}")
-                        return episode_url
-        except Exception as e:
-            self.logger.error(f"要素取得エラーが発生しました: {e} - {program_title}")
+            return episodes
+        except TimeoutException:
+            self.logger.warning(f"エピソード要素が見つかりませんでした: {program_title}")
             return None
+
+    def _extract_episode_date(self, episode, program_title: str) -> datetime | None:
+        """エピソード要素から日付を抽出する"""
+        date_text = self._extract_date_text(episode, program_title)
+        if date_text:
+            return self._parse_date_text(date_text, program_title)
         return None
+
+    def _extract_date_text(self, episode, program_title: str) -> str | None:
+        """エピソード要素から日付テキストを抽出する"""
+        try:
+            try:
+                date_element = episode.find_element(By.CLASS_NAME, 'gc-stream-panel-info-title-firstbroadcastdate-date')
+                year_element = date_element.find_element(By.CLASS_NAME, 'gc-atom-text-for-date-year')
+                day_element = date_element.find_element(By.CLASS_NAME, 'gc-atom-text-for-date-day')
+                year_text = year_element.text.strip()
+                day_text = day_element.text.strip()
+                date_text = f"{year_text}{day_text}"
+            except NoSuchElementException:
+                date_element = episode.find_element(By.CLASS_NAME, 'gc-stream-panel-info-title')
+                date_text = date_element.text.strip()
+            return date_text
+        except NoSuchElementException:
+            self.logger.debug(f"日付要素が見つかりませんでした: {program_title}")
+            return None
+
+    def _parse_date_text(self, date_text: str, program_title: str) -> datetime | None:
+        """日付テキストをdatetimeオブジェクトにパースする"""
+        match = re.search(r'(\d{4})年(\d{1,2})月(\d{1,2})日', date_text)
+        if match:
+            year, month, day = match.groups()
+            return datetime(int(year), int(month), int(day))
+        else:
+            self.logger.debug(f"日付テキストのパースに失敗: {date_text} - {program_title}")
+            return None
+
+    def _extract_episode_url(self, episode, program_title: str) -> str | None:
+        """エピソード要素からURLを抽出する"""
+        try:
+            episode_url = episode.find_element(By.TAG_NAME, 'a').get_attribute("href")
+            self.logger.debug(f"エピソード情報を抽出しました: {program_title} - {episode_url}")
+            return episode_url
+        except NoSuchElementException:
+            self.logger.debug(f"エピソードURLが見つかりませんでした: {program_title}")
+            return None
 
     def _get_nhk_formatted_episode_info(self, driver, program_title: str, episode_url: str, channel: str) -> str | None:
         """NHKのエピソード情報を整形する"""
