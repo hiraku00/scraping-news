@@ -280,3 +280,40 @@ def format_program_time(program_name: str, weekday: int, default_time: str) -> s
     if program_name.startswith("WBS"):
         return "(テレ東 22:00~22:58)" if weekday < 4 else "(テレ東 23:00~23:58)"
     return f"(テレ東 {default_time})"
+
+def extract_time_info_from_text(text: str) -> str:
+    """ツイートテキストから時刻情報を抽出・整形する # ★追加: get-tweet.py 用の時刻情報抽出関数"""
+    time_info = "時刻情報の抽出に失敗" # デフォルト値
+    add_24_hour = False # フラグを追加
+    logger = setup_logger(__name__) # logger を設定
+
+    if re.search(r"\(.+深夜\)", text): # (深夜)表記を検出
+        add_24_hour = True
+        logger.debug(f"デバッグ: (深夜)表記を検出(正規表現)。add_24_hour = {add_24_hour}")
+    else:
+        logger.debug(f"デバッグ: (深夜)表記を検出されず(正規表現)。add_24_hour = {add_24_hour}")
+
+    time_match = re.search(r'(\d{1,2})日\((.)\) (午前|午後)(\d{1,2}):(\d{2})', text) # 正規表現で時刻を抽出
+    if time_match:
+        hour = int(time_match.group(4))
+        minute = int(time_match.group(5))
+        ampm = time_match.group(3)
+        logger.debug(f"デバッグ: 抽出された時刻 hour = {hour}, minute = {minute}, ampm = {ampm}")
+
+        if add_24_hour:
+            hour += 24
+            logger.debug(f"デバッグ: 24時間加算実行。hour = {hour}")
+
+        if ampm == "午後" and hour < 12:  # 12時間制の調整
+            hour += 12
+        elif ampm == "午前" and hour == 12:
+            hour = 0
+
+        if add_24_hour: # 24時間表記
+            time_info = f"{hour:02d}:{minute:02d}"
+        else:
+            time_info = f"{hour:02}:{minute:02}"
+        logger.debug(f"デバッグ: time_info = {time_info}")
+    else:
+        logger.warning(f"時刻情報の抽出に失敗しました: text = {text}") # 警告ログ
+    return time_info
