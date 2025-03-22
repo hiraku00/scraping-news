@@ -38,37 +38,34 @@ def open_urls_from_config(config_programs: dict, program_name: str, block_urls: 
     program_config = config_programs[program_name]
     list_page_url = None
 
-    # 設定の形式 (文字列, 辞書, リスト) に対応
-    if isinstance(program_config, list):
-        for item in program_config:
-            if isinstance(item, dict) and 'url' in item:
-                list_page_url = item['url']
-            elif isinstance(item, str):
-                list_page_url = item
-            if list_page_url:
-                break  # 最初に見つかったURLを使用
-
-    elif isinstance(program_config, dict) and 'url' in program_config:
-        list_page_url = program_config['url']
-    elif isinstance(program_config, str):
-        list_page_url = program_config
+    # WBS の場合は urls キーから最初の URL を取得、それ以外は url キーから取得
+    if isinstance(program_config, dict):
+        if program_name == Constants.Program.WBS_PROGRAM_NAME and 'urls' in program_config:
+            list_page_url = program_config['urls'][0]  # 最初の URL (通常は feature)
+            # 詳細ページに trend_tamago が含まれていたら、一覧ページも trend_tamago にする
+            for detail_url in block_urls:
+                if "trend_tamago" in detail_url:
+                    list_page_url = program_config['urls'][1]  # 2番目の URL (trend_tamago)
+                    break  # 一つ見つかったらループを抜ける
+        elif 'url' in program_config:
+            list_page_url = program_config['url']
 
     if not list_page_url:
         logger.error(f"{program_name} の一覧ページURLが設定されていません。")
-        return False  # 異常終了 (設定ミス)
+        return False
 
-    # WBSの特殊処理
+    # 一覧ページを開く (WBS でも最初に一覧ページを開く)
+    logger.info(f"{program_name} の一覧ページ: {list_page_url} を開きます")
+    webbrowser.open(list_page_url)
+
+    # WBSの特殊処理 (詳細ページを開く)
     if program_name == Constants.Program.WBS_PROGRAM_NAME:
         for detail_url in block_urls:
             if "feature" in detail_url or "trend_tamago" in detail_url:
                 logger.info(f"{detail_url} を開きます")
                 webbrowser.open(detail_url)
-                time.sleep(Constants.Time.SLEEP_SECONDS)  # 各詳細ページを開いた後に待機
-        return True  # WBS はここで処理終了
-
-    # 一覧ページを開く
-    logger.info(f"{program_name} の一覧ページ: {list_page_url} を開きます")
-    webbrowser.open(list_page_url)
+                time.sleep(Constants.Time.SLEEP_SECONDS)
+        return True
 
     # 詳細ページを開く
     for detail_url in block_urls:

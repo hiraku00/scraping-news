@@ -506,7 +506,8 @@ import sys
 import re
 import json
 import unicodedata
-from common.utils import to_jst_datetime, to_utc_isoformat
+import logging
+from common.utils import to_jst_datetime, to_utc_isoformat, extract_time_info_from_text, setup_logger
 
 # API を使用するかダミーデータを使用するか (API 制限を回避するため)
 USE_API = True  # API を使用する場合は True に変更
@@ -621,12 +622,39 @@ def search_tweets(keyword, target_date, user=None, count=10):
         """
         return json.loads(dummy_json_data) # JSONをパースしたPythonオブジェクトを返す
 
+def format_program_info(text, time_info):
+    """番組情報をフォーマットする # ★追加: 番組情報フォーマット関数"""
+    program_info = "番組情報の抽出に失敗" # デフォルト値
+
+    # 番組情報のフォーマット（全角・半角両対応）
+    if "ＢＳ世界のドキュメンタリー" in text:
+        program_info = f"●BS世界のドキュメンタリー(NHK BS {time_info}-)"
+    elif "アナザーストーリーズ" in text:
+        program_info = f"●アナザーストーリーズ(NHK BS {time_info}-)"
+    elif re.search(r'Asia Insight|Ａｓｉａ　Ｉｎｓｉｇｈｔ', text):  # 全角・半角両対応
+        program_info = f"●Asia Insight(NHK BS {time_info}-)"
+    elif "英雄たちの選択" in text:
+        program_info = f"●英雄たちの選択(NHK BS {time_info}-)"
+    return program_info
+
+def cleanup_content(text, content):
+    """不要な文字列を削除する # ★追加: 不要文字列削除関数"""
+    # ＢＳ世界のドキュメンタリーの場合
+    if "ＢＳ世界のドキュメンタリー" in text:
+        content = re.sub(r'ＢＳ世界のドキュメンタリー[▽　選「]*', '', content).strip()
+        content = re.sub(r'」$', '', content).strip()
+    # アナザーストーリーズの場合
+    elif "アナザーストーリーズ" in text:
+        content = re.sub(r'アナザーストーリーズ[▽　選「]*', '', content).strip()
+        content = re.sub(r'」$', '', content).strip()
+    return content
+
 def format_tweet_data(tweet_data):
     """
     ツイートデータを受け取り、指定されたフォーマットで整形されたテキストを返します。
     """
     formatted_results = ""
-
+    logger = setup_logger(__name__) # logger を設定
     for tweet in tweet_data:
         text = tweet["text"]
         lines = text.splitlines()  # テキストを改行で分割
@@ -639,86 +667,16 @@ def format_tweet_data(tweet_data):
         if len(lines) > 0:
             first_line = lines[0]
             parts = first_line.split()
-
             # 放送局と日付の基本部分を確認
             if len(parts) > 3 and parts[0] == "NHK" and parts[1] == "BS":
-                try:
-                    time_str = parts[3]  # 時刻情報だけ取得
-                    date_str = parts[2]  # 日付部分を取得
-
-                    if re.search(r"\(.+深夜\)", first_line):
-                        add_24_hour = True
-                        print(f"デバッグ: (深夜)表記を検出(正規表現)。add_24_hour = {add_24_hour}")
-                    else:
-                        print(f"デバッグ: (深夜)表記を検出されず(正規表現)。add_24_hour = {add_24_hour}")
-
-                    # 午前/午後を判定
-                    if "午後" in time_str:
-                        ampm = "午後"
-                    elif "午前" in time_str:
-                        ampm = "午前"
-                    else:
-                        ampm = None
-
-                    time_parts = re.findall(r'\d+', time_str)
-                    if len(time_parts) == 2:
-                        hour = int(time_parts[0])
-                        minute = int(time_parts[1])
-                        print(f"デバッグ: 抽出された時刻 hour = {hour}, minute = {minute}, ampm = {ampm}")
-
-                        if add_24_hour:
-                            hour += 24
-                            print(f"デバッグ: 24時間加算実行。hour = {hour}")
-
-                        if ampm == "午後" and hour < 24:  # 12時間制の調整
-                            hour += 12
-                        elif ampm == "午前" and hour == 12:
-                            hour = 0
-
-                        if add_24_hour:
-                            time_info = f"{hour:02d}:{minute:02d}"
-                        else:
-                            time_info = f"{hour:02}:{minute:02}"
-                        print(f"デバッグ: time_info = {time_info}")
-                    else:
-                        time_info = "時刻情報の抽出に失敗"
-                except ValueError as e:
-                    time_info = "時刻情報の抽出に失敗"
-
-                # 番組情報のフォーマット（全角・半角両対応）
-                if "ＢＳ世界のドキュメンタリー" in text:
-                    program_info = f"●BS世界のドキュメンタリー(NHK BS {time_info}-)"
-                elif "アナザーストーリーズ" in text:
-                    program_info = f"●アナザーストーリーズ(NHK BS {time_info}-)"
-                elif re.search(r'Asia Insight|Ａｓｉａ　Ｉｎｓｉｇｈｔ', text):  # 全角・半角両対応
-                    program_info = f"●Asia Insight(NHK BS {time_info}-)"
-                elif "英雄たちの選択" in text:
-                    program_info = f"●英雄たちの選択(NHK BS {time_info}-)"
-                else:
-                    program_info = "番組情報の抽出に失敗"
+                time_info = extract_time_info_from_text(first_line) # utils.py の共通関数を使用
+                program_info = format_program_info(text, time_info) # 関数化
 
         #不要な文字列を削除（全角・半角両対応）
         content = ""
         if len(lines) > 1:
             content = lines[1]
-
-            # ＢＳ世界のドキュメンタリーの場合
-            if "ＢＳ世界のドキュメンタリー" in text:
-                content = re.sub(r'ＢＳ世界のドキュメンタリー[▽　選「]*', '', content).strip()
-                content = re.sub(r'」$', '', content).strip()
-
-            # アナザーストーリーズの場合
-            elif "アナザーストーリーズ" in text:
-                content = re.sub(r'アナザーストーリーズ[▽　選「]*', '', content).strip()
-                content = re.sub(r'」$', '', content).strip()
-
-            # Ａｓｉａ　Ｉｎｓｉｇｈｔの場合（全角・半角両対応）
-            elif re.search(r'Asia Insight|Ａｓｉａ　Ｉｎｓｉｇｈｔ', text):
-                content = re.sub(r'(Asia Insight|Ａｓｉａ　Ｉｎｓｉｇｈｔ)[▽　選「]*', '', content).strip() #全角半角対応
-
-            # 英雄たちの選択 の場合
-            elif "英雄たちの選択" in text:
-                content = re.sub(r'英雄たちの選択[▽　選「]*', '', content).strip()
+            content = cleanup_content(text, content) # 関数化
 
         # URLの抽出 (最終行にあると仮定)
         if len(lines) > 0:
@@ -761,11 +719,8 @@ if __name__ == '__main__':
             with open(filename, "w", encoding="utf-8") as f:
                 f.write(formatted_text)
             print(f"テキストファイルを {filename} に出力しました。")
-
         except Exception as e:
             print(f"ファイル書き込みエラー: {e}")
-    else:
-        print("ツイートの検索に失敗しました。")
 
 ```
 
@@ -1225,37 +1180,34 @@ def open_urls_from_config(config_programs: dict, program_name: str, block_urls: 
     program_config = config_programs[program_name]
     list_page_url = None
 
-    # 設定の形式 (文字列, 辞書, リスト) に対応
-    if isinstance(program_config, list):
-        for item in program_config:
-            if isinstance(item, dict) and 'url' in item:
-                list_page_url = item['url']
-            elif isinstance(item, str):
-                list_page_url = item
-            if list_page_url:
-                break  # 最初に見つかったURLを使用
-
-    elif isinstance(program_config, dict) and 'url' in program_config:
-        list_page_url = program_config['url']
-    elif isinstance(program_config, str):
-        list_page_url = program_config
+    # WBS の場合は urls キーから最初の URL を取得、それ以外は url キーから取得
+    if isinstance(program_config, dict):
+        if program_name == Constants.Program.WBS_PROGRAM_NAME and 'urls' in program_config:
+            list_page_url = program_config['urls'][0]  # 最初の URL (通常は feature)
+            # 詳細ページに trend_tamago が含まれていたら、一覧ページも trend_tamago にする
+            for detail_url in block_urls:
+                if "trend_tamago" in detail_url:
+                    list_page_url = program_config['urls'][1]  # 2番目の URL (trend_tamago)
+                    break  # 一つ見つかったらループを抜ける
+        elif 'url' in program_config:
+            list_page_url = program_config['url']
 
     if not list_page_url:
         logger.error(f"{program_name} の一覧ページURLが設定されていません。")
-        return False  # 異常終了 (設定ミス)
+        return False
 
-    # WBSの特殊処理
+    # 一覧ページを開く (WBS でも最初に一覧ページを開く)
+    logger.info(f"{program_name} の一覧ページ: {list_page_url} を開きます")
+    webbrowser.open(list_page_url)
+
+    # WBSの特殊処理 (詳細ページを開く)
     if program_name == Constants.Program.WBS_PROGRAM_NAME:
         for detail_url in block_urls:
             if "feature" in detail_url or "trend_tamago" in detail_url:
                 logger.info(f"{detail_url} を開きます")
                 webbrowser.open(detail_url)
-                time.sleep(Constants.Time.SLEEP_SECONDS)  # 各詳細ページを開いた後に待機
-        return True  # WBS はここで処理終了
-
-    # 一覧ページを開く
-    logger.info(f"{program_name} の一覧ページ: {list_page_url} を開きます")
-    webbrowser.open(list_page_url)
+                time.sleep(Constants.Time.SLEEP_SECONDS)
+        return True
 
     # 詳細ページを開く
     for detail_url in block_urls:
@@ -2103,6 +2055,43 @@ def format_program_time(program_name: str, weekday: int, default_time: str) -> s
     if program_name.startswith("WBS"):
         return "(テレ東 22:00~22:58)" if weekday < 4 else "(テレ東 23:00~23:58)"
     return f"(テレ東 {default_time})"
+
+def extract_time_info_from_text(text: str) -> str:
+    """ツイートテキストから時刻情報を抽出・整形する # ★追加: get-tweet.py 用の時刻情報抽出関数"""
+    time_info = "時刻情報の抽出に失敗" # デフォルト値
+    add_24_hour = False # フラグを追加
+    logger = setup_logger(__name__) # logger を設定
+
+    if re.search(r"\(.+深夜\)", text): # (深夜)表記を検出
+        add_24_hour = True
+        logger.debug(f"デバッグ: (深夜)表記を検出(正規表現)。add_24_hour = {add_24_hour}")
+    else:
+        logger.debug(f"デバッグ: (深夜)表記を検出されず(正規表現)。add_24_hour = {add_24_hour}")
+
+    time_match = re.search(r'(\d{1,2})日\((.)\) (午前|午後)(\d{1,2}):(\d{2})', text) # 正規表現で時刻を抽出
+    if time_match:
+        hour = int(time_match.group(4))
+        minute = int(time_match.group(5))
+        ampm = time_match.group(3)
+        logger.debug(f"デバッグ: 抽出された時刻 hour = {hour}, minute = {minute}, ampm = {ampm}")
+
+        if add_24_hour:
+            hour += 24
+            logger.debug(f"デバッグ: 24時間加算実行。hour = {hour}")
+
+        if ampm == "午後" and hour < 12:  # 12時間制の調整
+            hour += 12
+        elif ampm == "午前" and hour == 12:
+            hour = 0
+
+        if add_24_hour: # 24時間表記
+            time_info = f"{hour:02d}:{minute:02d}"
+        else:
+            time_info = f"{hour:02}:{minute:02}"
+        logger.debug(f"デバッグ: time_info = {time_info}")
+    else:
+        logger.warning(f"時刻情報の抽出に失敗しました: text = {text}") # 警告ログ
+    return time_info
 
 ```
 
