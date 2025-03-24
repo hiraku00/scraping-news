@@ -97,14 +97,14 @@ class NHKScraper(BaseScraper):
         """エピソード要素から日付テキストを抽出する"""
         try:
             try:
-                date_element = episode.find_element(By.CLASS_NAME, 'gc-stream-panel-info-title-firstbroadcastdate-date') # 変更なし
-                year_element = date_element.find_element(By.CLASS_NAME, Constants.CSSSelector.DATE_YEAR) # ★修正: CSSセレクタを定数から参照
-                day_element = date_element.find_element(By.CLASS_NAME, Constants.CSSSelector.DATE_DAY) # ★修正: CSSセレクタを定数から参照
+                date_element = episode.find_element(By.CLASS_NAME, Constants.CSSSelector.DATE_TEXT_WITH_YEAR)
+                year_element = date_element.find_element(By.CLASS_NAME, Constants.CSSSelector.DATE_YEAR)
+                day_element = date_element.find_element(By.CLASS_NAME, Constants.CSSSelector.DATE_DAY)
                 year_text = year_element.text.strip()
                 day_text = day_element.text.strip()
-                date_text = f"{year_text}{day_text}" # 変更なし
+                date_text = f"{year_text}{day_text}"
             except NoSuchElementException:
-                date_element = episode.find_element(By.CLASS_NAME, Constants.CSSSelector.DATE_TEXT_NO_YEAR) # ★修正: CSSセレクタを定数から参照
+                date_element = episode.find_element(By.CLASS_NAME, Constants.CSSSelector.DATE_TEXT_NO_YEAR)
                 date_text = date_element.text.strip()
             return date_text
         except NoSuchElementException:

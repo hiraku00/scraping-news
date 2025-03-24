@@ -47,6 +47,7 @@ class Constants:
         DATE_YEAR = 'gc-atom-text-for-date-year'
         DATE_DAY = 'gc-atom-text-for-date-day'
         DATE_TEXT_NO_YEAR = 'gc-stream-panel-info-title'
+        DATE_TEXT_WITH_YEAR = 'gc-stream-panel-info-title-firstbroadcastdate-date'
         EPISODE_URL_TAG = 'a'
         TITLE = 'title'
         NHK_PLUS_URL_SPAN = '//div[@class="detailed-memo-body"]/span[contains(@class, "detailed-memo-headline")]/a[contains(text(), "NHKプラス配信はこちらからご覧ください")]'
