@@ -251,7 +251,7 @@ def extract_program_time_info(driver: webdriver.Chrome, program_title: str, epis
                 return f"({channel} {start_time_24h}-{end_time_24h})"
             else:
                 logger.warning(f"時間の取得に失敗しました。取得した文字列: {time_element_text} - {program_title}, {episode_url}")
-                return "（放送時間取得失敗）"
+                return "(放送時間取得失敗)"
         except (TimeoutException, NoSuchElementException) as e:
             logger.warning(f"要素が見つかりませんでした (リトライ {retry+1}/{max_retries}): {e} - {program_title}, {episode_url}")
             if retry < max_retries - 1: time.sleep(retry_interval)
@@ -259,7 +259,7 @@ def extract_program_time_info(driver: webdriver.Chrome, program_title: str, epis
             logger.error(f"放送時間情報の抽出に失敗しました: {e} - {program_title}, {episode_url}")
 
     logger.error(f"最大リトライ回数を超えました: {program_title}, {episode_url}") # 共通のエラーメッセージ
-    return "（放送時間取得失敗）"
+    return "(放送時間取得失敗)"
 
 def _extract_time_parts(time_text: str) -> tuple[str | None, str | None, str | None, str | None]: # ★修正: 関数名変更
     """時刻情報を含む文字列から、午前/午後、時刻を抽出する # ★修正: 関数名変更"""
