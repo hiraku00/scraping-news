@@ -203,7 +203,7 @@ class NHKScraper(BaseScraper):
             try:
                 final_url = self._process_iframe_url(driver, program_title, episode_url)
             except Exception as iframe_e:
-                self.logger.error(f"eyecatch画像, iframe URL取得失敗: {program_title}, {episode_url} - eyecatch_e: {str(eyecatch_e)}, iframe_e: {str(iframe_e)}")
+                self.logger.debug(f"iframe URL取得失敗 (正常な状態の可能性あり): {program_title} - {str(iframe_e)}")
                 return None # eyecatch, iframe どちらの処理も失敗
 
         # final_url が None でない場合のみ処理を続ける
@@ -245,7 +245,7 @@ class NHKScraper(BaseScraper):
             self.logger.info(f"iframeからURLを生成しました: {final_url} - {program_title}")
             return final_url
         else:
-            self.logger.error(f"iframeからIDを抽出できませんでした: {program_title}, {episode_url}")
+            self.logger.debug(f"iframeからIDを抽出できませんでした（正常な状態の可能性あり）: {program_title}")
             return None
 
     def _format_fallback_output(self, driver, program_title: str, episode_url: str, channel: str, episode_title: str) -> str:

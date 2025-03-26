@@ -232,8 +232,8 @@ def format_date(target_date: str) -> str:
     """日付をフォーマットする (YYYYMMDD -> YYYY.MM.DD)"""
     return datetime.strptime(target_date, Constants.Format.DATE_FORMAT).strftime(Constants.Format.DATE_FORMAT_YYYYMMDD)
 
-def extract_program_time_info(driver: webdriver.Chrome, program_title: str, episode_url: str, channel: str, max_retries: int = 3, retry_interval: int = 1) -> str:
-    """番組詳細ページから放送時間を抽出し、フォーマットする # ★修正: 関数名変更, 処理を共通化"""
+def extract_program_time_info(driver: webdriver.Chrome, program_title: str, episode_url: str, channel: str, max_retries: int = 1, retry_interval: int = 1) -> str:
+    """番組詳細ページから放送時間を抽出し、フォーマットする"""
     logger = setup_logger(__name__)  # ロガーをセットアップ
 
     if program_title == "国際報道 2025":
@@ -253,7 +253,7 @@ def extract_program_time_info(driver: webdriver.Chrome, program_title: str, epis
                 logger.warning(f"時間の取得に失敗しました。取得した文字列: {time_element_text} - {program_title}, {episode_url}")
                 return "(放送時間取得失敗)"
         except (TimeoutException, NoSuchElementException) as e:
-            logger.warning(f"要素が見つかりませんでした (リトライ {retry+1}/{max_retries}): {e} - {program_title}, {episode_url}")
+            logger.debug(f"要素が見つかりませんでした (リトライ {retry+1}/{max_retries}): {e} - {program_title}")
             if retry < max_retries - 1: time.sleep(retry_interval)
         except Exception as e:
             logger.error(f"放送時間情報の抽出に失敗しました: {e} - {program_title}, {episode_url}")
@@ -261,14 +261,14 @@ def extract_program_time_info(driver: webdriver.Chrome, program_title: str, epis
     logger.error(f"最大リトライ回数を超えました: {program_title}, {episode_url}") # 共通のエラーメッセージ
     return "(放送時間取得失敗)"
 
-def _extract_time_parts(time_text: str) -> tuple[str | None, str | None, str | None, str | None]: # ★修正: 関数名変更
-    """時刻情報を含む文字列から、午前/午後、時刻を抽出する # ★修正: 関数名変更"""
+def _extract_time_parts(time_text: str) -> tuple[str | None, str | None, str | None, str | None]:
+    """時刻情報を含む文字列から、午前/午後、時刻を抽出する"""
     match = re.search(r'((午前|午後)?(\d{1,2}:\d{2}))-((午前|午後)?(\d{1,2}:\d{2}))', time_text)
     if not match: return None, None, None, None
     return match.group(2), match.group(3), match.group(5), match.group(6)
 
-def _to_24h_format(ampm: str | None, time_str: str) -> str: # ★修正: 関数名変更
-    """時刻を24時間表記に変換する # ★修正: 関数名変更"""
+def _to_24h_format(ampm: str | None, time_str: str) -> str:
+    """時刻を24時間表記に変換する"""
     hour, minute = map(int, time_str.split(":"))
     if ampm == "午後" and hour != 12:
         hour += 12
