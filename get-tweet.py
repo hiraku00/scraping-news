@@ -138,6 +138,29 @@ def format_program_info(text, time_info):
         program_info = f"●英雄たちの選択(NHK BS {time_info}-)"
     return program_info
 
+def extract_program_info(lines, text):
+    """1行目から番組名と時刻情報を抽出する"""
+    time_info = ""
+    program_info = ""
+
+    if len(lines) > 0:
+        first_line = lines[0]
+        parts = first_line.split()
+        # 放送局と日付の基本部分を確認
+        if len(parts) > 3 and parts[0] == "NHK" and parts[1] == "BS":
+            time_info = extract_time_info_from_text(first_line) # utils.py の共通関数を使用
+            program_info = format_program_info(text, time_info)
+
+    return time_info, program_info
+
+def extract_url_from_lines(lines):
+    """ツイートの行からURLを抽出する"""
+    if len(lines) > 0:
+        last_line = lines[-1]
+        if last_line.startswith("https://"):
+            return last_line
+    return "URLの抽出に失敗"
+
 def cleanup_content(text, content):
     """不要な文字列を削除する # ★追加: 不要文字列削除関数"""
     # ＢＳ世界のドキュメンタリーの場合
@@ -150,43 +173,31 @@ def cleanup_content(text, content):
         content = re.sub(r'」$', '', content).strip()
     return content
 
+def extract_content_from_lines(lines, text):
+    """ツイートの本文を抽出して整形する"""
+    content = ""
+    if len(lines) > 1:
+        content = lines[1]
+        content = cleanup_content(text, content)
+    return content
+
 def format_tweet_data(tweet_data):
     """
     ツイートデータを受け取り、指定されたフォーマットで整形されたテキストを返します。
     """
     formatted_results = ""
-    logger = setup_logger(__name__) # logger を設定
+    logger = setup_logger(__name__)
+
     for tweet in tweet_data:
         text = tweet["text"]
-        lines = text.splitlines()  # テキストを改行で分割
-        time_info = ""
-        program_info = ""
-        url = ""  # URLを抽出するための変数
-        add_24_hour = False # フラグを追加
+        lines = text.splitlines()
 
-        # 1行目から番組名と時刻情報を抽出
-        if len(lines) > 0:
-            first_line = lines[0]
-            parts = first_line.split()
-            # 放送局と日付の基本部分を確認
-            if len(parts) > 3 and parts[0] == "NHK" and parts[1] == "BS":
-                time_info = extract_time_info_from_text(first_line) # utils.py の共通関数を使用
-                program_info = format_program_info(text, time_info) # 関数化
+        # 各要素を抽出
+        time_info, program_info = extract_program_info(lines, text)
+        content = extract_content_from_lines(lines, text)
+        url = extract_url_from_lines(lines)
 
-        #不要な文字列を削除（全角・半角両対応）
-        content = ""
-        if len(lines) > 1:
-            content = lines[1]
-            content = cleanup_content(text, content) # 関数化
-
-        # URLの抽出 (最終行にあると仮定)
-        if len(lines) > 0:
-            last_line = lines[-1]
-            if last_line.startswith("https://"):
-                url = last_line
-            else:
-                url = "URLの抽出に失敗"
-
+        # 結果を整形
         formatted_text = f"{program_info}\n・{content}\n{url}\n\n"
         formatted_results += formatted_text
 
