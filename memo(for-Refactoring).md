@@ -736,10 +736,20 @@ import sys
 import re
 import json
 import unicodedata
-from common.utils import to_jst_datetime, to_utc_isoformat
+import logging
+from common.utils import to_jst_datetime, to_utc_isoformat, extract_time_info_from_text, setup_logger
 
-# API を使用するかダミーデータを使用するか (API 制限を回避するため)
+# 定数定義
 USE_API = True  # API を使用する場合は True に変更
+
+# 番組名の定義
+PROGRAM_NAMES = [
+    "アナザーストーリーズ",
+    "ＢＳ世界のドキュメンタリー",
+    "Asia Insight",
+    "Ａｓｉａ　Ｉｎｓｉｇｈｔ",
+    "英雄たちの選択"
+]
 
 # 環境変数の読み込み
 load_dotenv()
@@ -751,7 +761,20 @@ ACCESS_TOKEN = os.getenv("ACCESS_TOKEN")
 ACCESS_SECRET = os.getenv("ACCESS_SECRET")
 BEARER_TOKEN = os.getenv("BEARER_TOKEN")
 
-def search_tweets(keyword, target_date, user=None, count=10):
+def create_search_queries(program_names, user):
+    """
+    APIクエリとX検索窓用のクエリを生成する
+    """
+    # APIクエリ用（スペースを含む番組名もそのまま使用可能）
+    api_keyword = " OR ".join(program_names)
+    api_query = f"from:{user} ({api_keyword})"
+
+    # X検索窓用（番組名をダブルクォートで囲む）
+    x_keyword = " OR ".join(f'"{name}"' for name in program_names)
+
+    return api_query, x_keyword
+
+def search_tweets(target_date, user=None, count=10):
     """
     Twitter API v2を使ってツイートを検索し、整形前のツイートデータを返します。
     """
@@ -760,12 +783,20 @@ def search_tweets(keyword, target_date, user=None, count=10):
         try:
             client = tweepy.Client(bearer_token=BEARER_TOKEN)
 
-            # OR検索のクエリを作成
-            query = f"from:{user} ({keyword})"
+            # APIクエリとX検索窓用のクエリを生成
+            api_query, x_keyword = create_search_queries(PROGRAM_NAMES, user)
 
             # 検索対象日を放送日の前日に設定
             jst_datetime_target = to_jst_datetime(target_date) - timedelta(days=1)
-            print(f"検索対象日: {jst_datetime_target}")
+
+            # 日付文字列を作成 (YYYY-MM-DD形式)
+            search_date = jst_datetime_target.strftime("%Y-%m-%d")
+
+            # 検索クエリとXでの実際の検索内容を表示
+            print("\n検索クエリ情報:")
+            print(f"APIクエリ: {api_query}")
+            print(f"Xでの検索窓入力内容: from:{user} {x_keyword} since:{search_date}_00:00:00_JST until:{search_date}_23:59:59_JST")
+            print(f"\n検索対象日: {jst_datetime_target}")
 
             # 日本時間の日付と時刻を作成 (検索期間は前日の00:00:00 から 23:59:59)
             #                                        ↑前日に Tweet されているため
@@ -782,7 +813,7 @@ def search_tweets(keyword, target_date, user=None, count=10):
                 return None
 
             response = client.search_recent_tweets(
-                query=query,
+                query=api_query,
                 max_results=count,
                 tweet_fields=["created_at", "text", "author_id"],
                 start_time=start_time,
@@ -810,7 +841,7 @@ def search_tweets(keyword, target_date, user=None, count=10):
                     time.sleep(1)
                 print("\n待機完了。リトライ...")  # 改行を追加
 
-                return search_tweets(keyword, target_date, user, count)  # 再帰的にリトライ
+                return search_tweets(target_date, user, count)  # 再帰的にリトライ
             else:
                 print(f"エラーが発生しました: {e}")
                 return None
@@ -851,117 +882,101 @@ def search_tweets(keyword, target_date, user=None, count=10):
         """
         return json.loads(dummy_json_data) # JSONをパースしたPythonオブジェクトを返す
 
+def format_program_info(text, time_info):
+    """番組情報をフォーマットする"""
+    program_info = "番組情報の抽出に失敗" # デフォルト値
+
+    # 番組情報のフォーマット（PROGRAM_NAMESを使用）
+    for program_name in PROGRAM_NAMES:
+        if program_name in text:
+            # Asia Insightの場合は英語表記を使用
+            display_name = "Asia Insight" if "Asia" in program_name or "Ａｓｉａ" in program_name else program_name
+            display_name = display_name.replace("ＢＳ世界のドキュメンタリー", "BS世界のドキュメンタリー")
+            program_info = f"●{display_name}(NHK BS {time_info}-)"
+            break
+
+    return program_info
+
+def extract_program_info(lines, text):
+    """1行目から番組名と時刻情報を抽出する"""
+    time_info = ""
+    program_info = ""
+
+    if len(lines) > 0:
+        first_line = lines[0]
+        parts = first_line.split()
+        # 放送局と日付の基本部分を確認
+        if len(parts) > 3 and parts[0] == "NHK" and parts[1] == "BS":
+            time_info = extract_time_info_from_text(first_line) # utils.py の共通関数を使用
+            program_info = format_program_info(text, time_info)
+
+    return time_info, program_info
+
+def extract_url_from_lines(lines):
+    """ツイートの行からURLを抽出する"""
+    if len(lines) > 0:
+        last_line = lines[-1]
+        if last_line.startswith("https://"):
+            return last_line
+    return "URLの抽出に失敗"
+
+def cleanup_content(text, content):
+    """不要な文字列を削除する # ★追加: 不要文字列削除関数"""
+    # ＢＳ世界のドキュメンタリーの場合
+    if "ＢＳ世界のドキュメンタリー" in text:
+        content = re.sub(r'ＢＳ世界のドキュメンタリー[▽　選「]*', '', content).strip()
+        content = re.sub(r'」$', '', content).strip()
+    # アナザーストーリーズの場合
+    elif "アナザーストーリーズ" in text:
+        content = re.sub(r'アナザーストーリーズ[▽　選「]*', '', content).strip()
+        content = re.sub(r'」$', '', content).strip()
+    return content
+
+def extract_content_from_lines(lines, text):
+    """ツイートの本文を抽出して整形する"""
+    content = ""
+    if len(lines) > 1:
+        content = lines[1]
+        content = cleanup_content(text, content)
+    return content
+
 def format_tweet_data(tweet_data):
     """
     ツイートデータを受け取り、指定されたフォーマットで整形されたテキストを返します。
     """
     formatted_results = ""
+    logger = setup_logger(__name__)
 
     for tweet in tweet_data:
         text = tweet["text"]
-        lines = text.splitlines()  # テキストを改行で分割
-        time_info = ""
-        program_info = ""
-        url = ""  # URLを抽出するための変数
-        add_24_hour = False # フラグを追加
+        lines = text.splitlines()
 
-        # 1行目から番組名と時刻情報を抽出
-        if len(lines) > 0:
-            first_line = lines[0]
-            parts = first_line.split()
+        # 各要素を抽出
+        time_info, program_info = extract_program_info(lines, text)
+        content = extract_content_from_lines(lines, text)
+        url = extract_url_from_lines(lines)
 
-            # 放送局と日付の基本部分を確認
-            if len(parts) > 3 and parts[0] == "NHK" and parts[1] == "BS":
-                try:
-                    time_str = parts[3]  # 時刻情報だけ取得
-                    date_str = parts[2]  # 日付部分を取得
-
-                    if re.search(r"\(.+深夜\)", first_line):
-                        add_24_hour = True
-                        print(f"デバッグ: (深夜)表記を検出(正規表現)。add_24_hour = {add_24_hour}")
-                    else:
-                        print(f"デバッグ: (深夜)表記を検出されず(正規表現)。add_24_hour = {add_24_hour}")
-
-                    # 午前/午後を判定
-                    if "午後" in time_str:
-                        ampm = "午後"
-                    elif "午前" in time_str:
-                        ampm = "午前"
-                    else:
-                        ampm = None
-
-                    time_parts = re.findall(r'\d+', time_str)
-                    if len(time_parts) == 2:
-                        hour = int(time_parts[0])
-                        minute = int(time_parts[1])
-                        print(f"デバッグ: 抽出された時刻 hour = {hour}, minute = {minute}, ampm = {ampm}")
-
-                        if add_24_hour:
-                            hour += 24
-                            print(f"デバッグ: 24時間加算実行。hour = {hour}")
-
-                        if ampm == "午後" and hour < 24:  # 12時間制の調整
-                            hour += 12
-                        elif ampm == "午前" and hour == 12:
-                            hour = 0
-
-                        if add_24_hour:
-                            time_info = f"{hour:02d}:{minute:02d}"
-                        else:
-                            time_info = f"{hour:02}:{minute:02}"
-                        print(f"デバッグ: time_info = {time_info}")
-                    else:
-                        time_info = "時刻情報の抽出に失敗"
-                except ValueError as e:
-                    time_info = "時刻情報の抽出に失敗"
-
-                # 番組情報のフォーマット（全角・半角両対応）
-                if "ＢＳ世界のドキュメンタリー" in text:
-                    program_info = f"●BS世界のドキュメンタリー(NHK BS {time_info}-)"
-                elif "アナザーストーリーズ" in text:
-                    program_info = f"●アナザーストーリーズ(NHK BS {time_info}-)"
-                elif re.search(r'Asia Insight|Ａｓｉａ　Ｉｎｓｉｇｈｔ', text):  # 全角・半角両対応
-                    program_info = f"●Asia Insight(NHK BS {time_info}-)"
-                elif "英雄たちの選択" in text:
-                    program_info = f"●英雄たちの選択(NHK BS {time_info}-)"
-                else:
-                    program_info = "番組情報の抽出に失敗"
-
-        #不要な文字列を削除（全角・半角両対応）
-        content = ""
-        if len(lines) > 1:
-            content = lines[1]
-
-            # ＢＳ世界のドキュメンタリーの場合
-            if "ＢＳ世界のドキュメンタリー" in text:
-                content = re.sub(r'ＢＳ世界のドキュメンタリー[▽　選「]*', '', content).strip()
-                content = re.sub(r'」$', '', content).strip()
-
-            # アナザーストーリーズの場合
-            elif "アナザーストーリーズ" in text:
-                content = re.sub(r'アナザーストーリーズ[▽　選「]*', '', content).strip()
-                content = re.sub(r'」$', '', content).strip()
-
-            # Ａｓｉａ　Ｉｎｓｉｇｈｔの場合（全角・半角両対応）
-            elif re.search(r'Asia Insight|Ａｓｉａ　Ｉｎｓｉｇｈｔ', text):
-                content = re.sub(r'(Asia Insight|Ａｓｉａ　Ｉｎｓｉｇｈｔ)[▽　選「]*', '', content).strip() #全角半角対応
-
-            # 英雄たちの選択 の場合
-            elif "英雄たちの選択" in text:
-                content = re.sub(r'英雄たちの選択[▽　選「]*', '', content).strip()
-
-        # URLの抽出 (最終行にあると仮定)
-        if len(lines) > 0:
-            last_line = lines[-1]
-            if last_line.startswith("https://"):
-                url = last_line
-            else:
-                url = "URLの抽出に失敗"
-
+        # 結果を整形
         formatted_text = f"{program_info}\n・{content}\n{url}\n\n"
         formatted_results += formatted_text
 
     return formatted_results
+
+def save_to_file(formatted_text, target_date):
+    """フォーマットされたテキストをファイルに保存する"""
+    filename = f"output/{target_date}_tweet.txt"
+
+    # outputディレクトリが存在しなければ作成
+    if not os.path.exists("output"):
+        os.makedirs("output")
+
+    # テキストファイルに書き出し
+    try:
+        with open(filename, "w", encoding="utf-8") as f:
+            f.write(formatted_text)
+        print(f"テキストファイルを {filename} に出力しました。")
+    except Exception as e:
+        print(f"ファイル書き込みエラー: {e}")
 
 if __name__ == '__main__':
     if len(sys.argv) < 2:
@@ -969,33 +984,17 @@ if __name__ == '__main__':
         exit()
     target_date = sys.argv[1]
 
-    # OR検索用のキーワードをカッコで囲み、| で区切る  全角半角両対応
-    keyword = "アナザーストーリーズ OR ＢＳ世界のドキュメンタリー OR Asia Insight OR Ａｓｉａ　Ｉｎｓｉｇｈｔ OR 英雄たちの選択"
     user = "nhk_docudocu"
     count = 10
 
-    tweets = search_tweets(keyword, target_date, user, count) # APIリクエスト or ダミーデータ取得
+    # ツイート検索とデータ取得
+    tweets = search_tweets(target_date, user, count)
 
+    # 結果の処理と保存
     if tweets:
         formatted_text = format_tweet_data(tweets)
-        # ファイル名を作成
-        now = datetime.now()
-        filename = f"output/{target_date}_tweet.txt"  # ファイル名を変更
+        save_to_file(formatted_text, target_date)
 
-        # outputディレクトリが存在しなければ作成
-        if not os.path.exists("output"):
-            os.makedirs("output")
-
-        # テキストファイルに書き出し
-        try:
-            with open(filename, "w", encoding="utf-8") as f:
-                f.write(formatted_text)
-            print(f"テキストファイルを {filename} に出力しました。")
-
-        except Exception as e:
-            print(f"ファイル書き込みエラー: {e}")
-    else:
-        print("ツイートの検索に失敗しました。")
 ```
 
 
@@ -1822,6 +1821,7 @@ class Constants:
         DATE_YEAR = 'gc-atom-text-for-date-year'
         DATE_DAY = 'gc-atom-text-for-date-day'
         DATE_TEXT_NO_YEAR = 'gc-stream-panel-info-title'
+        DATE_TEXT_WITH_YEAR = 'gc-stream-panel-info-title-firstbroadcastdate-date'
         EPISODE_URL_TAG = 'a'
         TITLE = 'title'
         NHK_PLUS_URL_SPAN = '//div[@class="detailed-memo-body"]/span[contains(@class, "detailed-memo-headline")]/a[contains(text(), "NHKプラス配信はこちらからご覧ください")]'
@@ -2006,7 +2006,7 @@ def format_date(target_date: str) -> str:
     """日付をフォーマットする (YYYYMMDD -> YYYY.MM.DD)"""
     return datetime.strptime(target_date, Constants.Format.DATE_FORMAT).strftime(Constants.Format.DATE_FORMAT_YYYYMMDD)
 
-def extract_program_time_info(driver: webdriver.Chrome, program_title: str, episode_url: str, channel: str, max_retries: int = 3, retry_interval: int = 1) -> str:
+def extract_program_time_info(driver: webdriver.Chrome, program_title: str, episode_url: str, channel: str, max_retries: int = 1, retry_interval: int = 1) -> str:
     """番組詳細ページから放送時間を抽出し、フォーマットする # ★修正: 関数名変更, 処理を共通化"""
     logger = setup_logger(__name__)  # ロガーをセットアップ
 
@@ -2025,17 +2025,17 @@ def extract_program_time_info(driver: webdriver.Chrome, program_title: str, epis
                 return f"({channel} {start_time_24h}-{end_time_24h})"
             else:
                 logger.warning(f"時間の取得に失敗しました。取得した文字列: {time_element_text} - {program_title}, {episode_url}")
-                return "（放送時間取得失敗）"
+                return "(放送時間取得失敗)"
         except (TimeoutException, NoSuchElementException) as e:
-            logger.warning(f"要素が見つかりませんでした (リトライ {retry+1}/{max_retries}): {e} - {program_title}, {episode_url}")
+            logger.debug(f"要素が見つかりませんでした (リトライ {retry+1}/{max_retries}): {e} - {program_title}")
             if retry < max_retries - 1: time.sleep(retry_interval)
         except Exception as e:
             logger.error(f"放送時間情報の抽出に失敗しました: {e} - {program_title}, {episode_url}")
 
     logger.error(f"最大リトライ回数を超えました: {program_title}, {episode_url}") # 共通のエラーメッセージ
-    return "（放送時間取得失敗）"
+    return "(放送時間取得失敗)"
 
-def _extract_time_parts(time_text: str) -> tuple[str | None, str | None, str | None, str | None]: # ★修正: 関数名変更
+def _extract_time_parts(time_text: str) -> tuple[str | None, str | None, str | None, str | None]:
     """時刻情報を含む文字列から、午前/午後、時刻を抽出する # ★修正: 関数名変更"""
     match = re.search(r'((午前|午後)?(\d{1,2}:\d{2}))-((午前|午後)?(\d{1,2}:\d{2}))', time_text)
     if not match: return None, None, None, None
@@ -2092,19 +2092,6 @@ def extract_time_info_from_text(text: str) -> str:
     else:
         logger.warning(f"時刻情報の抽出に失敗しました: text = {text}") # 警告ログ
     return time_info
-
-```
-
-CustomExpectedConditions.py
-```
-from selenium.webdriver.remote.webdriver import WebDriver
-
-class CustomExpectedConditions:
-    """Seleniumのカスタム条件"""
-    @staticmethod
-    def page_is_ready():
-        """ページが完全に読み込まれたことを確認する"""
-        return lambda driver: driver.execute_script("return document.readyState") == "complete"
 
 ```
 

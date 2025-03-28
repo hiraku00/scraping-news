@@ -10,8 +10,17 @@ import unicodedata
 import logging
 from common.utils import to_jst_datetime, to_utc_isoformat, extract_time_info_from_text, setup_logger
 
-# API を使用するかダミーデータを使用するか (API 制限を回避するため)
+# 定数定義
 USE_API = True  # API を使用する場合は True に変更
+
+# 番組名の定義
+PROGRAM_NAMES = [
+    "アナザーストーリーズ",
+    "ＢＳ世界のドキュメンタリー",
+    "Asia Insight",
+    "Ａｓｉａ　Ｉｎｓｉｇｈｔ",
+    "英雄たちの選択"
+]
 
 # 環境変数の読み込み
 load_dotenv()
@@ -23,7 +32,20 @@ ACCESS_TOKEN = os.getenv("ACCESS_TOKEN")
 ACCESS_SECRET = os.getenv("ACCESS_SECRET")
 BEARER_TOKEN = os.getenv("BEARER_TOKEN")
 
-def search_tweets(keyword, target_date, user=None, count=10):
+def create_search_queries(program_names, user):
+    """
+    APIクエリとX検索窓用のクエリを生成する
+    """
+    # APIクエリ用（スペースを含む番組名もそのまま使用可能）
+    api_keyword = " OR ".join(program_names)
+    api_query = f"from:{user} ({api_keyword})"
+
+    # X検索窓用（番組名をダブルクォートで囲む）
+    x_keyword = " OR ".join(f'"{name}"' for name in program_names)
+
+    return api_query, x_keyword
+
+def search_tweets(target_date, user=None, count=10):
     """
     Twitter API v2を使ってツイートを検索し、整形前のツイートデータを返します。
     """
@@ -32,12 +54,19 @@ def search_tweets(keyword, target_date, user=None, count=10):
         try:
             client = tweepy.Client(bearer_token=BEARER_TOKEN)
 
-            # OR検索のクエリを作成
-            query = f"from:{user} ({keyword})"
+            # APIクエリとX検索窓用のクエリを生成
+            api_query, x_keyword = create_search_queries(PROGRAM_NAMES, user)
 
             # 検索対象日を放送日の前日に設定
             jst_datetime_target = to_jst_datetime(target_date) - timedelta(days=1)
-            print(f"検索対象日: {jst_datetime_target}")
+
+            # 日付文字列を作成 (YYYY-MM-DD形式)
+            search_date = jst_datetime_target.strftime("%Y-%m-%d")
+
+            # 検索クエリとXでの実際の検索内容を表示
+            print("\n検索クエリ情報:")
+            print(f"APIクエリ: {api_query}")
+            print(f"Xでの検索窓入力内容: from:{user} {x_keyword} since:{search_date}_00:00:00_JST until:{search_date}_23:59:59_JST")
 
             # 日本時間の日付と時刻を作成 (検索期間は前日の00:00:00 から 23:59:59)
             #                                        ↑前日に Tweet されているため
@@ -54,7 +83,7 @@ def search_tweets(keyword, target_date, user=None, count=10):
                 return None
 
             response = client.search_recent_tweets(
-                query=query,
+                query=api_query,
                 max_results=count,
                 tweet_fields=["created_at", "text", "author_id"],
                 start_time=start_time,
@@ -82,7 +111,7 @@ def search_tweets(keyword, target_date, user=None, count=10):
                     time.sleep(1)
                 print("\n待機完了。リトライ...")  # 改行を追加
 
-                return search_tweets(keyword, target_date, user, count)  # 再帰的にリトライ
+                return search_tweets(target_date, user, count)  # 再帰的にリトライ
             else:
                 print(f"エラーが発生しました: {e}")
                 return None
@@ -124,18 +153,18 @@ def search_tweets(keyword, target_date, user=None, count=10):
         return json.loads(dummy_json_data) # JSONをパースしたPythonオブジェクトを返す
 
 def format_program_info(text, time_info):
-    """番組情報をフォーマットする # ★追加: 番組情報フォーマット関数"""
+    """番組情報をフォーマットする"""
     program_info = "番組情報の抽出に失敗" # デフォルト値
 
-    # 番組情報のフォーマット（全角・半角両対応）
-    if "ＢＳ世界のドキュメンタリー" in text:
-        program_info = f"●BS世界のドキュメンタリー(NHK BS {time_info}-)"
-    elif "アナザーストーリーズ" in text:
-        program_info = f"●アナザーストーリーズ(NHK BS {time_info}-)"
-    elif re.search(r'Asia Insight|Ａｓｉａ　Ｉｎｓｉｇｈｔ', text):  # 全角・半角両対応
-        program_info = f"●Asia Insight(NHK BS {time_info}-)"
-    elif "英雄たちの選択" in text:
-        program_info = f"●英雄たちの選択(NHK BS {time_info}-)"
+    # 番組情報のフォーマット（PROGRAM_NAMESを使用）
+    for program_name in PROGRAM_NAMES:
+        if program_name in text:
+            # Asia Insightの場合は英語表記を使用
+            display_name = "Asia Insight" if "Asia" in program_name or "Ａｓｉａ" in program_name else program_name
+            display_name = display_name.replace("ＢＳ世界のドキュメンタリー", "BS世界のドキュメンタリー")
+            program_info = f"●{display_name}(NHK BS {time_info}-)"
+            break
+
     return program_info
 
 def extract_program_info(lines, text):
@@ -203,33 +232,35 @@ def format_tweet_data(tweet_data):
 
     return formatted_results
 
+def save_to_file(formatted_text, target_date):
+    """フォーマットされたテキストをファイルに保存する"""
+    filename = f"output/{target_date}_tweet.txt"
+
+    # outputディレクトリが存在しなければ作成
+    if not os.path.exists("output"):
+        os.makedirs("output")
+
+    # テキストファイルに書き出し
+    try:
+        with open(filename, "w", encoding="utf-8") as f:
+            f.write(formatted_text)
+        print(f"テキストファイルを {filename} に出力しました。")
+    except Exception as e:
+        print(f"ファイル書き込みエラー: {e}")
+
 if __name__ == '__main__':
     if len(sys.argv) < 2:
         print("使用方法: python get-tweet.py YYYYMMDD")
         exit()
     target_date = sys.argv[1]
 
-    # OR検索用のキーワードをカッコで囲み、| で区切る  全角半角両対応
-    keyword = "アナザーストーリーズ OR ＢＳ世界のドキュメンタリー OR Asia Insight OR Ａｓｉａ　Ｉｎｓｉｇｈｔ OR 英雄たちの選択"
     user = "nhk_docudocu"
     count = 10
 
-    tweets = search_tweets(keyword, target_date, user, count) # APIリクエスト or ダミーデータ取得
+    # ツイート検索とデータ取得
+    tweets = search_tweets(target_date, user, count)
 
+    # 結果の処理と保存
     if tweets:
         formatted_text = format_tweet_data(tweets)
-        # ファイル名を作成
-        now = datetime.now()
-        filename = f"output/{target_date}_tweet.txt"  # ファイル名を変更
-
-        # outputディレクトリが存在しなければ作成
-        if not os.path.exists("output"):
-            os.makedirs("output")
-
-        # テキストファイルに書き出し
-        try:
-            with open(filename, "w", encoding="utf-8") as f:
-                f.write(formatted_text)
-            print(f"テキストファイルを {filename} に出力しました。")
-        except Exception as e:
-            print(f"ファイル書き込みエラー: {e}")
+        save_to_file(formatted_text, target_date)
