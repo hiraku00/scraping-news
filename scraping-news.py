@@ -425,6 +425,32 @@ def write_results_to_file(sorted_blocks: list[str], output_file_path: str, logge
         logger.error(f"ファイルへの書き込みに失敗しました: {e}")
         raise
 
+def process_and_sort_results(results: list[str | None], start_time: float, logger) -> list[str]:
+    """結果を番組ブロックごとに分割し、時間順にソートする"""
+    logger.info(f"\n【後処理開始】結果を番組ブロックごとに分割中...（経過時間：{get_elapsed_time(start_time):.0f}秒）") # \n を追加
+    blocks = []
+    current_block = []
+    # results リスト内の None をフィルタリング
+    filtered_results = [res for res in results if res is not None]
+
+    for line in filtered_results: # None を除外したリストを処理
+        if line.startswith('●'): # None チェックは不要になった
+            if current_block:
+                blocks.append('\n'.join(current_block))
+            current_block = [line] # 新しいブロックを開始
+        else:
+            current_block.append(line) # 現在のブロックに追加
+
+    if current_block: # ループ終了後に最後のブロックを追加
+        blocks.append('\n'.join(current_block))
+
+    logger.info(f"番組ブロックの分割完了: {len(blocks)} ブロック作成（経過時間：{get_elapsed_time(start_time):.0f}秒）")
+
+    logger.info(f"番組ブロックを時間順にソート中...（経過時間：{get_elapsed_time(start_time):.0f}秒）")
+    sorted_blocks = sort_blocks_by_time(blocks)
+    logger.info(f"番組ブロックのソート完了（経過時間：{get_elapsed_time(start_time):.0f}秒）")
+    return sorted_blocks
+
 def main():
     """メイン関数"""
     if len(sys.argv) != 2:
@@ -459,26 +485,13 @@ def main():
                 elapsed_time = get_elapsed_time(start_time)
                 print(f"\r進捗: {processed_tasks}/{total_tasks}（経過時間：{get_elapsed_time(start_time):.0f}秒）", end="", flush=True)
 
-        logger.info(f"【後処理開始】結果を番組ブロックごとに分割中...（経過時間：{get_elapsed_time(start_time):.0f}秒）")
-        blocks = []
-        current_block = []
-        for line in results:
-            if line.startswith('●'):
-                if current_block:
-                    blocks.append('\n'.join(current_block))
-                    current_block = []
-            current_block.append(line)
-        if current_block:
-            blocks.append('\n'.join(current_block))
-        logger.info(f"番組ブロックの分割完了: {len(blocks)} ブロック作成（経過時間：{get_elapsed_time(start_time):.0f}秒）")
+        # 結果の集計とソート
+        sorted_blocks = process_and_sort_results(results, start_time, logger)
 
-        logger.info(f"番組ブロックを時間順にソート中...（経過時間：{get_elapsed_time(start_time):.0f}秒）")
-        sorted_blocks = sort_blocks_by_time(blocks)
-        logger.info(f"番組ブロックのソート完了（経過時間：{get_elapsed_time(start_time):.0f}秒）")
-
+        # ファイルへの書き込み
         write_results_to_file(sorted_blocks, output_file_path, logger)
 
-        print(f"結果を {output_file_path} に出力しました。（経過時間：{get_elapsed_time(start_time):.0f}秒）")
+        print(f"\n結果を {output_file_path} に出力しました。（経過時間：{get_elapsed_time(start_time):.0f}秒）") # \n を追加して改行
 
     except Exception as e:
         logger.error(f"メイン処理でエラーが発生しました: {e}")

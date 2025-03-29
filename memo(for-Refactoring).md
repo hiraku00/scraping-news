@@ -101,14 +101,14 @@ class NHKScraper(BaseScraper):
         """エピソード要素から日付テキストを抽出する"""
         try:
             try:
-                date_element = episode.find_element(By.CLASS_NAME, 'gc-stream-panel-info-title-firstbroadcastdate-date') # 変更なし
-                year_element = date_element.find_element(By.CLASS_NAME, Constants.CSSSelector.DATE_YEAR) # ★修正: CSSセレクタを定数から参照
-                day_element = date_element.find_element(By.CLASS_NAME, Constants.CSSSelector.DATE_DAY) # ★修正: CSSセレクタを定数から参照
+                date_element = episode.find_element(By.CLASS_NAME, Constants.CSSSelector.DATE_TEXT_WITH_YEAR)
+                year_element = date_element.find_element(By.CLASS_NAME, Constants.CSSSelector.DATE_YEAR)
+                day_element = date_element.find_element(By.CLASS_NAME, Constants.CSSSelector.DATE_DAY)
                 year_text = year_element.text.strip()
                 day_text = day_element.text.strip()
-                date_text = f"{year_text}{day_text}" # 変更なし
+                date_text = f"{year_text}{day_text}"
             except NoSuchElementException:
-                date_element = episode.find_element(By.CLASS_NAME, Constants.CSSSelector.DATE_TEXT_NO_YEAR) # ★修正: CSSセレクタを定数から参照
+                date_element = episode.find_element(By.CLASS_NAME, Constants.CSSSelector.DATE_TEXT_NO_YEAR)
                 date_text = date_element.text.strip()
             return date_text
         except NoSuchElementException:
@@ -207,7 +207,7 @@ class NHKScraper(BaseScraper):
             try:
                 final_url = self._process_iframe_url(driver, program_title, episode_url)
             except Exception as iframe_e:
-                self.logger.error(f"eyecatch画像, iframe URL取得失敗: {program_title}, {episode_url} - eyecatch_e: {str(eyecatch_e)}, iframe_e: {str(iframe_e)}")
+                self.logger.debug(f"iframe URL取得失敗 (正常な状態の可能性あり): {program_title} - {str(iframe_e)}")
                 return None # eyecatch, iframe どちらの処理も失敗
 
         # final_url が None でない場合のみ処理を続ける
@@ -249,7 +249,7 @@ class NHKScraper(BaseScraper):
             self.logger.info(f"iframeからURLを生成しました: {final_url} - {program_title}")
             return final_url
         else:
-            self.logger.error(f"iframeからIDを抽出できませんでした: {program_title}, {episode_url}")
+            self.logger.debug(f"iframeからIDを抽出できませんでした（正常な状態の可能性あり）: {program_title}")
             return None
 
     def _format_fallback_output(self, driver, program_title: str, episode_url: str, channel: str, episode_title: str) -> str:
@@ -429,6 +429,32 @@ def write_results_to_file(sorted_blocks: list[str], output_file_path: str, logge
         logger.error(f"ファイルへの書き込みに失敗しました: {e}")
         raise
 
+def process_and_sort_results(results: list[str | None], start_time: float, logger) -> list[str]:
+    """結果を番組ブロックごとに分割し、時間順にソートする"""
+    logger.info(f"\n【後処理開始】結果を番組ブロックごとに分割中...（経過時間：{get_elapsed_time(start_time):.0f}秒）") # \n を追加
+    blocks = []
+    current_block = []
+    # results リスト内の None をフィルタリング
+    filtered_results = [res for res in results if res is not None]
+
+    for line in filtered_results: # None を除外したリストを処理
+        if line.startswith('●'): # None チェックは不要になった
+            if current_block:
+                blocks.append('\n'.join(current_block))
+            current_block = [line] # 新しいブロックを開始
+        else:
+            current_block.append(line) # 現在のブロックに追加
+
+    if current_block: # ループ終了後に最後のブロックを追加
+        blocks.append('\n'.join(current_block))
+
+    logger.info(f"番組ブロックの分割完了: {len(blocks)} ブロック作成（経過時間：{get_elapsed_time(start_time):.0f}秒）")
+
+    logger.info(f"番組ブロックを時間順にソート中...（経過時間：{get_elapsed_time(start_time):.0f}秒）")
+    sorted_blocks = sort_blocks_by_time(blocks)
+    logger.info(f"番組ブロックのソート完了（経過時間：{get_elapsed_time(start_time):.0f}秒）")
+    return sorted_blocks
+
 def main():
     """メイン関数"""
     if len(sys.argv) != 2:
@@ -463,26 +489,13 @@ def main():
                 elapsed_time = get_elapsed_time(start_time)
                 print(f"\r進捗: {processed_tasks}/{total_tasks}（経過時間：{get_elapsed_time(start_time):.0f}秒）", end="", flush=True)
 
-        logger.info(f"【後処理開始】結果を番組ブロックごとに分割中...（経過時間：{get_elapsed_time(start_time):.0f}秒）")
-        blocks = []
-        current_block = []
-        for line in results:
-            if line.startswith('●'):
-                if current_block:
-                    blocks.append('\n'.join(current_block))
-                    current_block = []
-            current_block.append(line)
-        if current_block:
-            blocks.append('\n'.join(current_block))
-        logger.info(f"番組ブロックの分割完了: {len(blocks)} ブロック作成（経過時間：{get_elapsed_time(start_time):.0f}秒）")
+        # 結果の集計とソート
+        sorted_blocks = process_and_sort_results(results, start_time, logger)
 
-        logger.info(f"番組ブロックを時間順にソート中...（経過時間：{get_elapsed_time(start_time):.0f}秒）")
-        sorted_blocks = sort_blocks_by_time(blocks)
-        logger.info(f"番組ブロックのソート完了（経過時間：{get_elapsed_time(start_time):.0f}秒）")
-
+        # ファイルへの書き込み
         write_results_to_file(sorted_blocks, output_file_path, logger)
 
-        print(f"結果を {output_file_path} に出力しました。（経過時間：{get_elapsed_time(start_time):.0f}秒）")
+        print(f"\n結果を {output_file_path} に出力しました。（経過時間：{get_elapsed_time(start_time):.0f}秒）") # \n を追加して改行
 
     except Exception as e:
         logger.error(f"メイン処理でエラーが発生しました: {e}")
