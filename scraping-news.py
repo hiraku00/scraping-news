@@ -409,7 +409,6 @@ def process_scraping(target_date: str, nhk_programs: dict, tvtokyo_programs: dic
     nhk_tasks = [('nhk', program_title, nhk_programs, target_date) for program_title in nhk_programs]
     tvtokyo_tasks = [('tvtokyo', program_name, tvtokyo_programs, target_date) for program_name in tvtokyo_programs]
     return nhk_tasks + tvtokyo_tasks
-    return tasks
 
 def write_results_to_file(sorted_blocks: list[str], output_file_path: str, logger) -> None:
     """ソートされた結果をファイルに書き込む"""
