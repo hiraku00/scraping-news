@@ -33,7 +33,7 @@ class Constants:
         """文字関連の定数"""
         FULL_WIDTH_CHAR_WEIGHT = 2
         HALF_WIDTH_CHAR_WEIGHT = 1
-        URL_CHAR_WEIGHT = 11.5
+        URL_CHAR_WEIGHT = 23
 
     class Format:
         """フォーマット関連の定数"""
