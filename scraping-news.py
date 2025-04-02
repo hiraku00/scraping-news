@@ -174,13 +174,21 @@ class NHKScraper(BaseScraper):
 
     def _format_bs_special_output(self, driver, program_title: str, channel: str, episode_url: str, episode_title: str) -> str:
         """BSスペシャル用の出力フォーマット"""
-        program_time = f"({channel} 22:45-23:35)"
-        final_url = driver.current_url
-        formatted_output = f"●{program_title}{program_time}\n"
-        formatted_output += f"・{episode_title}\n"
-        formatted_output += f"{final_url}\n"
-        self.logger.info(f"{program_title} の詳細情報を取得しました")
-        return formatted_output
+        # BSスペシャルは固定の時間枠を使用
+        def mock_extract_time(*args):
+            return f"({channel} 22:45-23:35)"
+
+        # 一時的に extract_program_time_info を上書き
+        original_extract = utils.extract_program_time_info
+        utils.extract_program_time_info = mock_extract_time
+
+        try:
+            formatted_output = self._format_program_output(driver, program_title, episode_url, channel, episode_title, driver.current_url)
+            self.logger.info(f"{program_title} の詳細情報を取得しました")
+            return formatted_output
+        finally:
+            # 必ず元の関数に戻す
+            utils.extract_program_time_info = original_extract
 
     def _extract_nhk_plus_url(self, driver) -> str | None:
         """NHKプラスのURLを抽出する"""
@@ -208,13 +216,8 @@ class NHKScraper(BaseScraper):
 
         # final_url が None でない場合のみ処理を続ける
         if final_url: # eyecatch または iframe からURLを取得できた場合
-            program_time = utils.extract_program_time_info(driver, program_title, episode_url, channel) # ★修正: 関数名変更
-            formatted_output = f"●{program_title}{program_time}\n"
-            formatted_output += f"・{episode_title}\n"
-            if nhk_plus_url:
-                formatted_output += f"{nhk_plus_url}\n"
-            else:
-                formatted_output += f"{final_url}\n"
+            url_to_use = nhk_plus_url if nhk_plus_url else final_url
+            formatted_output = self._format_program_output(driver, program_title, episode_url, channel, episode_title, url_to_use)
             self.logger.info(f"{program_title} の詳細情報を取得しました")
             return formatted_output
         return None # eyecatch, iframe どちらからもURLを取得できなかった場合
@@ -248,13 +251,14 @@ class NHKScraper(BaseScraper):
             self.logger.debug(f"iframeからIDを抽出できませんでした（正常な状態の可能性あり）: {program_title}")
             return None
 
+    def _format_program_output(self, driver, program_title: str, episode_url: str, channel: str, episode_title: str, url_to_display: str) -> str:
+        """番組情報の出力をフォーマットする共通関数"""
+        program_time = utils.extract_program_time_info(driver, program_title, episode_url, channel)
+        return f"●{program_title}{program_time}\n・{episode_title}\n{url_to_display}\n"
+
     def _format_fallback_output(self, driver, program_title: str, episode_url: str, channel: str, episode_title: str) -> str:
         """eyecatch, iframe 処理失敗時のフォールバック出力"""
-        program_time = utils.extract_program_time_info(driver, program_title, episode_url, channel) # ★修正: 関数名変更
-        formatted_output = f"●{program_title}{program_time}\n"
-        formatted_output += f"・{episode_title}\n"
-        formatted_output += f"{episode_url}\n"
-        return formatted_output
+        return self._format_program_output(driver, program_title, episode_url, channel, episode_title, episode_url)
 
 class TVTokyoScraper(BaseScraper):
     """テレビ東京の番組情報をスクレイピングするクラス"""
@@ -263,7 +267,6 @@ class TVTokyoScraper(BaseScraper):
         super().__init__(config)
 
     def get_program_info(self, program_name: str, target_date: str) -> str | None:
-        """指定された番組の情報を取得する"""
         program_config = self.config.get(program_name)
         if not program_config:
             self.logger.warning(f"{program_name} の設定情報が見つかりません")
@@ -276,33 +279,71 @@ class TVTokyoScraper(BaseScraper):
                 program_time = utils.format_program_time(program_config['name'], weekday, program_config['time'])
                 self.logger.info(f"検索開始: {program_name}")
 
-                if program_name == "WBS":
-                    episode_urls = self._extract_tvtokyo_episode_urls(driver, program_config["urls"], formatted_date, program_name)
+                target_urls = []
+                if "urls" in program_config:
+                    urls_value = program_config["urls"]
+                    # 型をチェックして処理を分岐
+                    if isinstance(urls_value, str):
+                        # 文字列ならカンマ区切りで分割
+                        target_urls = [url.strip() for url in urls_value.split(',') if url.strip()]
+                    elif isinstance(urls_value, list):
+                        # リストならそのまま使用 (要素が文字列であることを期待)
+                        target_urls = [str(url).strip() for url in urls_value if str(url).strip()] # 念のため文字列変換とstrip
+                    else:
+                        self.logger.warning(f"{program_name} の 'urls' キーの値が予期しない型 ({type(urls_value)}) です。'url' キーを試します。")
+                        # urls が不正でも url キーがあればそちらを試す
+                        if "url" in program_config:
+                            target_urls = [program_config["url"]]
+                        else:
+                            self.logger.error(f"{program_name} の設定に有効なURL ('urls' または 'url') が見つかりません。")
+                            return None
+
+                    # urls キーの値が空だった場合のフォールバック
+                    if not target_urls:
+                        self.logger.warning(f"{program_name} の 'urls' キーから有効なURLを取得できませんでした。'url' キーを試します。")
+                        if "url" in program_config:
+                            target_urls = [program_config["url"]]
+                        else:
+                            self.logger.error(f"{program_name} の設定に有効なURL ('urls' または 'url') が見つかりません。")
+                            return None
+                elif "url" in program_config:
+                    target_urls = [program_config["url"]]
                 else:
-                    episode_urls = self._extract_tvtokyo_episode_urls(driver, [program_config["url"]], formatted_date, program_name)
+                    self.logger.error(f"{program_name} の設定に 'url' または 'urls' キーが見つかりません。")
+                    return None
+
+                if not target_urls: # 念のため最終チェック
+                    self.logger.error(f"{program_name} の処理で有効な target_urls が設定されませんでした。")
+                    return None
+
+                episode_urls = self._extract_tvtokyo_episode_urls(driver, target_urls, formatted_date, program_name)
 
                 if not episode_urls:
-                    self.logger.warning(f"{program_name} が見つかりませんでした")
+                    self.logger.warning(f"{program_name} の放送が見つかりませんでした。 (日付: {formatted_date}, URL: {target_urls})")
                     return None
 
                 episode_details = [
                     self._fetch_tvtokyo_episode_details(driver, url, program_name) for url in episode_urls
                 ]
 
-                # 結果の整形
-                formatted_output = f"●{program_config['name']}{program_time}\n"
-                for title, url in episode_details:
-                    if title and url:
-                        formatted_output += f"・{title}\n{url}\n"
-
-                if formatted_output == f"●{program_config['name']}{program_time}\n":
+                valid_details = [(title, url) for title, url in episode_details if title and url]
+                if not valid_details:
+                    self.logger.warning(f"{program_name} の有効なエピソード詳細が見つかりませんでした。")
                     return None
+
+                first_title, first_url = valid_details[0]
+                formatted_output = self._format_program_output(
+                    program_title=program_config['name'],
+                    program_time=program_time,
+                    episode_title=first_title,
+                    url_to_display=first_url
+                )
 
                 self.logger.info(f"{program_name} の詳細情報を取得しました")
                 return formatted_output
 
             except Exception as e:
-                self.logger.error(f"番組情報取得中にエラー: {e} - {program_name}")
+                self.logger.error(f"番組情報取得中にエラー: {e} - {program_name}", exc_info=True)
                 return None
 
     def _extract_tvtokyo_episode_urls(self, driver, target_urls: list[str], formatted_date: str, program_name: str) -> list[str]:
@@ -311,67 +352,108 @@ class TVTokyoScraper(BaseScraper):
         target_urls をリストとして受け取り、各URLに対して処理を行う。
         """
         all_urls = []
+        today = datetime.now().date()
+        yesterday = today - timedelta(days=1)
+        formatted_today = utils.format_date(today.strftime('%Y%m%d'))
+        formatted_yesterday = utils.format_date(yesterday.strftime('%Y%m%d'))
+
         for target_url in target_urls:
             try:
                 driver.get(target_url)
-                WebDriverWait(driver, utils.Constants.Time.DEFAULT_TIMEOUT).until(CustomExpectedConditions.page_is_ready())
+                # ページの主要なリスト要素が表示されるまで待機（より具体的に）
+                try:
+                    WebDriverWait(driver, utils.Constants.Time.DEFAULT_TIMEOUT).until(
+                        EC.presence_of_element_located((By.CSS_SELECTOR, 'div[id^="News_Detail__VideoItem__"]'))
+                    )
+                except TimeoutException:
+                    self.logger.warning(f"{program_name} のエピソードリスト要素が見つかりませんでした（タイムアウト） - {target_url}")
+                    continue # 次のURLへ
 
-                # 要素の存在確認（find_elements を使用）
+                # 少し待機（動的コンテンツ読み込みのため）
+                time.sleep(1) # 必要に応じて調整
+
                 episode_elements = driver.find_elements(By.CSS_SELECTOR, 'div[id^="News_Detail__VideoItem__"]')
                 if not episode_elements:
                     self.logger.warning(f"{program_name} のエピソード要素が見つかりませんでした - {target_url}")
-                    continue  # 次のURLへ
+                    continue
 
-                urls = []
-                today = datetime.now().date()
-                yesterday = today - timedelta(days=1)
-                formatted_today = utils.format_date(today.strftime('%Y%m%d'))
-                formatted_yesterday = utils.format_date(yesterday.strftime('%Y%m%d'))
-
+                urls_found_on_page = []
                 for episode in episode_elements:
                     try:
-                        # 日付要素の存在確認
+                        # 日付要素の取得を試みる
                         date_elements = episode.find_elements(By.CSS_SELECTOR, 'span.sc-c564813-0.iCkNIF[role="presentation"]')
                         if not date_elements:
                             self.logger.debug(f"日付要素が見つかりませんでした - {program_name} - {target_url}")
-                            continue # 次のエピソードへ
+                            continue
 
                         date_element = date_elements[0]
                         date_text = date_element.text.strip()
 
-                        if "今日" in date_text and formatted_today == formatted_date:
-                            link = episode.find_element(By.CSS_SELECTOR, 'a[href*="post_"]').get_attribute("href")
-                            urls.append(link)
-                        elif "昨日" in date_text and formatted_yesterday == formatted_date:
-                            link = episode.find_element(By.CSS_SELECTOR, 'a[href*="post_"]').get_attribute("href")
-                            urls.append(link)
-                        elif date_text == formatted_date:
-                            link = episode.find_element(By.CSS_SELECTOR, 'a[href*="post_"]').get_attribute("href")
-                            urls.append(link)
+                        # 日付のマッチング確認
+                        is_matching_date = (
+                            ("今日" in date_text and formatted_today == formatted_date) or
+                            ("昨日" in date_text and formatted_yesterday == formatted_date) or
+                            date_text == formatted_date # "MM月DD日" 形式
+                        )
 
-                    except (NoSuchElementException, StaleElementReferenceException) as e:
-                        self.logger.error(f"エピソード解析中にエラー: {e} - {program_name} - {target_url}")
-                        # 必要に応じてリトライ処理などを追加
-                all_urls.extend(urls)
-            except Exception as e:
-                self.logger.error(f"URL取得エラー: {e} - {program_name} - {target_url}")
-        self.logger.debug(f"テレビ東京のエピソードURLを抽出しました: {program_name} - {all_urls}")
-        return all_urls
+                        if is_matching_date:
+                            try:
+                                link_element = episode.find_element(By.CSS_SELECTOR, 'a[href*="post_"]')
+                                link = link_element.get_attribute("href")
+                                if link:
+                                    urls_found_on_page.append(link)
+                                else:
+                                    self.logger.debug(f"リンクURLが空でした - {program_name} - {target_url}")
+                            except NoSuchElementException:
+                                self.logger.debug(f"リンク要素が見つかりませんでした - {program_name} - {target_url}")
+
+                    except StaleElementReferenceException:
+                        self.logger.warning(f"要素が無効になりました。リトライまたはスキップします - {program_name} - {target_url}")
+                        break # このページの処理を中断して次のURLへ行く方が安全か
+                    except Exception as e_inner:
+                        self.logger.error(f"エピソード解析中に予期せぬエラー: {e_inner} - {program_name} - {target_url}", exc_info=True)
+
+                if urls_found_on_page:
+                    self.logger.debug(f"抽出されたURL ({target_url}): {urls_found_on_page}")
+                    all_urls.extend(urls_found_on_page)
+                else:
+                    self.logger.debug(f"対象日付のエピソードは見つかりませんでした - {program_name} - {target_url} (日付: {formatted_date})")
+
+            except Exception as e_outer:
+                self.logger.error(f"URL ({target_url}) の処理中にエラー: {e_outer} - {program_name}", exc_info=True)
+
+        # 重複を除去して返す
+        unique_urls = sorted(list(set(all_urls)))
+        self.logger.debug(f"最終的に抽出されたユニークなエピソードURL: {program_name} - {unique_urls}")
+        return unique_urls
 
     def _fetch_tvtokyo_episode_details(self, driver, episode_url: str, program_name: str) -> tuple[str | None, str | None]:
         """テレビ東京のエピソード詳細情報を取得する"""
         try:
             driver.get(episode_url)
-            WebDriverWait(driver, utils.Constants.Time.DEFAULT_TIMEOUT).until(CustomExpectedConditions.page_is_ready())
-            title_element = WebDriverWait(driver, utils.Constants.Time.DEFAULT_TIMEOUT).until(
-                EC.presence_of_element_located((By.ID, "Live_Episode_Detail_EpisodeItemFullTitle"))
-            )
-            title = title_element.text.strip()
-            self.logger.debug(f"エピソード詳細情報を取得しました: {program_name} - {title}")
-            return title, episode_url
+            # タイトル要素が表示されるまで待機
+            try:
+                title_element = WebDriverWait(driver, utils.Constants.Time.DEFAULT_TIMEOUT).until(
+                    EC.presence_of_element_located((By.ID, "Live_Episode_Detail_EpisodeItemFullTitle"))
+                )
+                title = title_element.text.strip()
+                if not title: # タイトルが空の場合も考慮
+                    self.logger.warning(f"エピソードタイトルが空でした - {program_name} - {episode_url}")
+                    return None, episode_url # URLは返す
+                self.logger.debug(f"エピソード詳細情報を取得しました: {program_name} - {title}")
+                return title, episode_url
+            except TimeoutException:
+                self.logger.error(f"エピソードタイトル要素が見つかりませんでした（タイムアウト） - {program_name} - {episode_url}")
+                return None, None # タイトルが見つからない場合は失敗扱い
+
         except Exception as e:
-            self.logger.error(f"エピソード詳細取得エラー: {e} - {program_name}, {episode_url}")
+            self.logger.error(f"エピソード詳細取得エラー: {e} - {program_name}, {episode_url}", exc_info=True)
             return None, None
+
+    # メソッド定義は変更なし（引数は program_title, program_time, episode_title, url_to_display）
+    def _format_program_output(self, program_title: str, program_time: str, episode_title: str, url_to_display: str) -> str:
+        """番組情報の出力をフォーマットする共通関数"""
+        return f"●{program_title}{program_time}\n・{episode_title}\n{url_to_display}\n"
 
 def fetch_program_info(args: tuple[str, str, dict, str]) -> str | None:
     """並列処理用のラッパー関数"""
