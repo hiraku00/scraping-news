@@ -3,7 +3,7 @@ import webbrowser
 import re
 import sys
 import time
-from common.utils import load_config, setup_logger, parse_programs_config, Constants
+from common.utils import setup_logger, parse_programs_config, Constants
 
 logger = setup_logger(__name__)
 

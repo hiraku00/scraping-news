@@ -3,7 +3,6 @@ import os
 import re
 from common.constants import (
     TWEET_MAX_LENGTH,
-    get_header_text,
     get_header_length
 )
 from common.utils import count_tweet_length

@@ -6,8 +6,6 @@ from datetime import datetime, timedelta
 import sys
 import re
 import json
-import unicodedata
-import logging
 from common.utils import to_jst_datetime, to_utc_isoformat, extract_time_info_from_text, setup_logger
 
 # 定数定義
