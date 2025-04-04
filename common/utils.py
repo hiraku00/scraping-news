@@ -41,8 +41,9 @@ class Constants:
         DATE_FORMAT_YYYYMMDD = "%Y.%m.%d"
         DATETIME_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
-    class CSSSelector: # ★追加: CSSセレクタを定義
+    class CSSSelector:
         """CSSセレクタを定義するクラス"""
+        # --- NHK ---
         EPISODE_INFO = 'gc-stream-panel-info'
         DATE_YEAR = 'gc-atom-text-for-date-year'
         DATE_DAY = 'gc-atom-text-for-date-day'
@@ -53,7 +54,13 @@ class Constants:
         NHK_PLUS_URL_SPAN = '//div[@class="detailed-memo-body"]/span[contains(@class, "detailed-memo-headline")]/a[contains(text(), "NHKプラス配信はこちらからご覧ください")]'
         EYECATCH_IMAGE_DIV = 'gc-images.is-medium.eyecatch'
         IFRAME_ID = 'eyecatchIframe'
-        STREAM_PANEL_INFO_META = "stream_panel--info--meta" # utils.py でも使用
+        STREAM_PANEL_INFO_META = "stream_panel--info--meta"
+
+        # --- TV Tokyo ---
+        TVTOKYO_VIDEO_ITEM = 'div[id^="News_Detail__VideoItem__"]'  # エピソードリスト項目
+        TVTOKYO_DATE_SPAN = 'span.sc-c564813-0.iCkNIF[role="presentation"]' # 日付表示 span
+        TVTOKYO_POST_LINK = 'a[href*="post_"]' # エピソードへのリンク
+        TVTOKYO_EPISODE_TITLE = "Live_Episode_Detail_EpisodeItemFullTitle" # 詳細ページのタイトル ID
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s') # ★修正: basicConfigで共通設定
 

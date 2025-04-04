@@ -16,6 +16,7 @@ from selenium.common.exceptions import TimeoutException, NoSuchElementException,
 import logging
 from common.base_scraper import BaseScraper
 
+# common.utils から必要な要素をすべてインポート
 from common.utils import (
     setup_logger, WebDriverManager, parse_programs_config,
     sort_blocks_by_time, Constants, format_date,
@@ -27,7 +28,6 @@ from common.CustomExpectedConditions import CustomExpectedConditions
 
 class NHKScraper(BaseScraper):
     """NHKの番組情報をスクレイピングするクラス"""
-
     def __init__(self, config):
         super().__init__(config)
 
@@ -208,21 +208,20 @@ class NHKScraper(BaseScraper):
         try:
             final_url = self._process_eyecatch_image(driver, program_title, episode_url)
         except Exception as eyecatch_e:
-            self.logger.debug(f"eyecatch画像処理失敗: {eyecatch_e} - {program_title}, {episode_url}")
+            self.logger.debug(f"eyecatch画像処理失敗: {eyecatch_e} - {program_title}, {episode_url}") # debug レベルでログ出力
             try:
                 final_url = self._process_iframe_url(driver, program_title, episode_url)
             except Exception as iframe_e:
                 self.logger.debug(f"iframe URL取得失敗 (正常な状態の可能性あり): {program_title} - {str(iframe_e)}")
-                return None # eyecatch, iframe どちらの処理も失敗 (元のコード通り)
+                return None # eyecatch, iframe どちらの処理も失敗
 
         # final_url が None でない場合のみ処理を続ける
-        if final_url:
+        if final_url: # eyecatch または iframe からURLを取得できた場合
             url_to_use = nhk_plus_url if nhk_plus_url else final_url
             formatted_output = self._format_program_output(driver, program_title, episode_url, channel, episode_title, url_to_use)
             self.logger.info(f"{program_title} の詳細情報を取得しました")
             return formatted_output
-        # eyecatch, iframe どちらからもURLを取得できなかった場合 (元のコード通り)
-        return None
+        return None # eyecatch, iframe どちらからもURLを取得できなかった場合
 
     def _process_eyecatch_image(self, driver, program_title: str, episode_url: str) -> str | None:
         """eyecatch画像からURLを取得する"""
@@ -239,7 +238,7 @@ class NHKScraper(BaseScraper):
         """iframeからURLを取得する"""
         iframe = WebDriverWait(driver, Constants.Time.DEFAULT_TIMEOUT).until(
             EC.presence_of_element_located((By.ID, Constants.CSSSelector.IFRAME_ID))
-        )
+        ) # By.ID で検索
         iframe_src = iframe.get_attribute('src')
         match = re.search(r'/st/(.*?)\?', iframe_src)
         if match:
@@ -284,17 +283,23 @@ class TVTokyoScraper(BaseScraper):
                 target_urls = []
                 if "urls" in program_config:
                     urls_value = program_config["urls"]
+                    # 型をチェックして処理を分岐
                     if isinstance(urls_value, str):
+                        # 文字列ならカンマ区切りで分割
                         target_urls = [url.strip() for url in urls_value.split(',') if url.strip()]
                     elif isinstance(urls_value, list):
-                        target_urls = [str(url).strip() for url in urls_value if str(url).strip()]
+                        # リストならそのまま使用 (要素が文字列であることを期待)
+                        target_urls = [str(url).strip() for url in urls_value if str(url).strip()] # 念のため文字列変換とstrip
                     else:
                         self.logger.warning(f"{program_name} の 'urls' キーの値が予期しない型 ({type(urls_value)}) です。'url' キーを試します。")
+                        # urls が不正でも url キーがあればそちらを試す
                         if "url" in program_config:
                             target_urls = [program_config["url"]]
                         else:
                             self.logger.error(f"{program_name} の設定に有効なURL ('urls' または 'url') が見つかりません。")
                             return None
+
+                    # urls キーの値が空だった場合のフォールバック
                     if not target_urls:
                         self.logger.warning(f"{program_name} の 'urls' キーから有効なURLを取得できませんでした。'url' キーを試します。")
                         if "url" in program_config:
@@ -308,7 +313,7 @@ class TVTokyoScraper(BaseScraper):
                     self.logger.error(f"{program_name} の設定に 'url' または 'urls' キーが見つかりません。")
                     return None
 
-                if not target_urls:
+                if not target_urls: # 念のため最終チェック
                     self.logger.error(f"{program_name} の処理で有効な target_urls が設定されませんでした。")
                     return None
 
@@ -339,7 +344,7 @@ class TVTokyoScraper(BaseScraper):
                 return formatted_output
 
             except Exception as e:
-                self.logger.error(f"番組情報取得中にエラー: {e} - {program_name}")
+                self.logger.error(f"番組情報取得中にエラー: {e} - {program_name}", exc_info=True)
                 return None
 
     def _extract_tvtokyo_episode_urls(self, driver, target_urls: list[str], formatted_date: str, program_name: str) -> list[str]:
@@ -356,17 +361,19 @@ class TVTokyoScraper(BaseScraper):
         for target_url in target_urls:
             try:
                 driver.get(target_url)
+                # ページの主要なリスト要素が表示されるまで待機（より具体的に）
                 try:
                     WebDriverWait(driver, Constants.Time.DEFAULT_TIMEOUT).until(
-                        EC.presence_of_element_located((By.CSS_SELECTOR, 'div[id^="News_Detail__VideoItem__"]'))
+                        EC.presence_of_element_located((By.CSS_SELECTOR, Constants.CSSSelector.TVTOKYO_VIDEO_ITEM))
                     )
                 except TimeoutException:
                     self.logger.warning(f"{program_name} のエピソードリスト要素が見つかりませんでした（タイムアウト） - {target_url}")
-                    continue
+                    continue # 次のURLへ
 
-                time.sleep(1)
+                # 少し待機（動的コンテンツ読み込みのため）
+                time.sleep(1) # 必要に応じて調整
 
-                episode_elements = driver.find_elements(By.CSS_SELECTOR, 'div[id^="News_Detail__VideoItem__"]')
+                episode_elements = driver.find_elements(By.CSS_SELECTOR, Constants.CSSSelector.TVTOKYO_VIDEO_ITEM)
                 if not episode_elements:
                     self.logger.warning(f"{program_name} のエピソード要素が見つかりませんでした - {target_url}")
                     continue
@@ -374,7 +381,8 @@ class TVTokyoScraper(BaseScraper):
                 urls_found_on_page = []
                 for episode in episode_elements:
                     try:
-                        date_elements = episode.find_elements(By.CSS_SELECTOR, 'span.sc-c564813-0.iCkNIF[role="presentation"]')
+                        # 日付要素の取得を試みる
+                        date_elements = episode.find_elements(By.CSS_SELECTOR, Constants.CSSSelector.TVTOKYO_DATE_SPAN)
                         if not date_elements:
                             self.logger.debug(f"日付要素が見つかりませんでした - {program_name} - {target_url}")
                             continue
@@ -382,15 +390,16 @@ class TVTokyoScraper(BaseScraper):
                         date_element = date_elements[0]
                         date_text = date_element.text.strip()
 
+                        # 日付のマッチング確認
                         is_matching_date = (
                             ("今日" in date_text and formatted_today == formatted_date) or
                             ("昨日" in date_text and formatted_yesterday == formatted_date) or
-                            date_text == formatted_date
+                            date_text == formatted_date # "MM月DD日" 形式
                         )
 
                         if is_matching_date:
                             try:
-                                link_element = episode.find_element(By.CSS_SELECTOR, 'a[href*="post_"]')
+                                link_element = episode.find_element(By.CSS_SELECTOR, Constants.CSSSelector.TVTOKYO_POST_LINK)
                                 link = link_element.get_attribute("href")
                                 if link:
                                     urls_found_on_page.append(link)
@@ -401,18 +410,20 @@ class TVTokyoScraper(BaseScraper):
 
                     except StaleElementReferenceException:
                         self.logger.warning(f"要素が無効になりました。リトライまたはスキップします - {program_name} - {target_url}")
-                        break
+                        break # このページの処理を中断して次のURLへ行く方が安全か
                     except Exception as e_inner:
-                        self.logger.error(f"エピソード解析中に予期せぬエラー: {e_inner} - {program_name} - {target_url}")
+                        self.logger.error(f"エピソード解析中に予期せぬエラー: {e_inner} - {program_name} - {target_url}", exc_info=True)
 
                 if urls_found_on_page:
                     self.logger.debug(f"抽出されたURL ({target_url}): {urls_found_on_page}")
                     all_urls.extend(urls_found_on_page)
                 else:
                     self.logger.debug(f"対象日付のエピソードは見つかりませんでした - {program_name} - {target_url} (日付: {formatted_date})")
-            except Exception as e_outer:
-                self.logger.error(f"URL ({target_url}) の処理中にエラー: {e_outer} - {program_name}")
 
+            except Exception as e_outer:
+                self.logger.error(f"URL ({target_url}) の処理中にエラー: {e_outer} - {program_name}", exc_info=True)
+
+        # 重複を除去して返す
         unique_urls = sorted(list(set(all_urls)))
         self.logger.debug(f"最終的に抽出されたユニークなエピソードURL: {program_name} - {unique_urls}")
         return unique_urls
@@ -421,27 +432,30 @@ class TVTokyoScraper(BaseScraper):
         """テレビ東京のエピソード詳細情報を取得する"""
         try:
             driver.get(episode_url)
+            # タイトル要素が表示されるまで待機
             try:
                 title_element = WebDriverWait(driver, Constants.Time.DEFAULT_TIMEOUT).until(
-                    EC.presence_of_element_located((By.ID, "Live_Episode_Detail_EpisodeItemFullTitle"))
+                    EC.presence_of_element_located((By.ID, Constants.CSSSelector.TVTOKYO_EPISODE_TITLE))
                 )
                 title = title_element.text.strip()
-                if not title:
+                if not title: # タイトルが空の場合も考慮
                     self.logger.warning(f"エピソードタイトルが空でした - {program_name} - {episode_url}")
-                    return None, episode_url
+                    return None, episode_url # URLは返す
                 self.logger.debug(f"エピソード詳細情報を取得しました: {program_name} - {title}")
                 return title, episode_url
             except TimeoutException:
                 self.logger.error(f"エピソードタイトル要素が見つかりませんでした（タイムアウト） - {program_name} - {episode_url}")
-                return None, None
+                return None, None # タイトルが見つからない場合は失敗扱い
+
         except Exception as e:
-            self.logger.error(f"エピソード詳細取得エラー: {e} - {program_name}, {episode_url}")
+            self.logger.error(f"エピソード詳細取得エラー: {e} - {program_name}, {episode_url}", exc_info=True)
             return None, None
 
     def _format_program_output(self, program_title: str, program_time: str, episode_title: str, url_to_display: str) -> str:
         """番組情報の出力をフォーマットする共通関数"""
         return f"●{program_title}{program_time}\n・{episode_title}\n{url_to_display}\n"
 
+# --- 関数定義 ---
 def fetch_program_info(args: tuple[str, str, dict, str]) -> str | None:
     """並列処理用のラッパー関数"""
     task_type, program_name, programs, target_date = args
@@ -495,18 +509,18 @@ def process_and_sort_results(results: list[str | None], start_time: float, logge
     logger.info(f"\n【後処理開始】結果を番組ブロックごとに分割中...（経過時間：{get_elapsed_time(start_time):.0f}秒）") # \n を追加
     blocks = []
     current_block = []
+    # results リスト内の None をフィルタリング
     filtered_results = [res for res in results if res is not None]
 
-    for line in filtered_results:
-        if line.startswith('●'):
+    for line in filtered_results: # None を除外したリストを処理
+        if line.startswith('●'): # None チェックは不要になった
             if current_block:
                 blocks.append('\n'.join(current_block))
-            current_block = [line]
+            current_block = [line] # 新しいブロックを開始
         else:
-            # result が複数行の場合、●で始まらない行も追加される
-            current_block.append(line)
+            current_block.append(line) # 現在のブロックに追加
 
-    if current_block:
+    if current_block: # ループ終了後に最後のブロックを追加
         blocks.append('\n'.join(current_block))
 
     logger.info(f"番組ブロックの分割完了: {len(blocks)} ブロック作成（経過時間：{get_elapsed_time(start_time):.0f}秒）")
@@ -550,7 +564,7 @@ def main():
                 elapsed_time = get_elapsed_time(start_time)
                 print(f"\r進捗: {processed_tasks}/{total_tasks}（経過時間：{get_elapsed_time(start_time):.0f}秒）", end="", flush=True)
 
-        print()
+        print() # 進捗表示後の改行
 
         # 結果の集計とソート
         sorted_blocks = process_and_sort_results(results, start_time, logger)
@@ -558,8 +572,7 @@ def main():
         # ファイルへの書き込み
         write_results_to_file(sorted_blocks, output_file_path, logger)
 
-        # 元のコード通りの出力メッセージ
-        print(f"\n結果を {output_file_path} に出力しました。（経過時間：{get_elapsed_time(start_time):.0f}秒）")
+        print(f"\n結果を {output_file_path} に出力しました。（経過時間：{get_elapsed_time(start_time):.0f}秒）") # \n を追加して改行
 
     except Exception as e:
         logger.error(f"メイン処理でエラーが発生しました: {e}")
@@ -1852,7 +1865,6 @@ utils.py
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 import logging
-from common.utils import setup_logger
 import configparser
 import re
 import time
@@ -1893,7 +1905,7 @@ class Constants:
         DATE_FORMAT_YYYYMMDD = "%Y.%m.%d"
         DATETIME_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
-    class CSSSelector:
+    class CSSSelector: # ★追加: CSSセレクタを定義
         """CSSセレクタを定義するクラス"""
         EPISODE_INFO = 'gc-stream-panel-info'
         DATE_YEAR = 'gc-atom-text-for-date-year'
@@ -1905,9 +1917,9 @@ class Constants:
         NHK_PLUS_URL_SPAN = '//div[@class="detailed-memo-body"]/span[contains(@class, "detailed-memo-headline")]/a[contains(text(), "NHKプラス配信はこちらからご覧ください")]'
         EYECATCH_IMAGE_DIV = 'gc-images.is-medium.eyecatch'
         IFRAME_ID = 'eyecatchIframe'
-        STREAM_PANEL_INFO_META = "stream_panel--info--meta"
+        STREAM_PANEL_INFO_META = "stream_panel--info--meta" # utils.py でも使用
 
-logger = setup_logger(__name__)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s') # ★修正: basicConfigで共通設定
 
 def setup_logger(name: str = __name__) -> logging.Logger:
     """ロガーを設定する"""
@@ -2170,19 +2182,6 @@ def extract_time_info_from_text(text: str) -> str:
     else:
         logger.warning(f"時刻情報の抽出に失敗しました: text = {text}") # 警告ログ
     return time_info
-
-```
-
-CustomExpectedConditions.py
-```
-from selenium.webdriver.remote.webdriver import WebDriver
-
-class CustomExpectedConditions:
-    """Seleniumのカスタム条件"""
-    @staticmethod
-    def page_is_ready():
-        """ページが完全に読み込まれたことを確認する"""
-        return lambda driver: driver.execute_script("return document.readyState") == "complete"
 
 ```
 
