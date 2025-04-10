@@ -71,3 +71,7 @@ class BaseScraper(ABC):
             except Exception as e:
                 self.logger.error(f"WebDriver操作中にエラーが発生しました: {str(e)}")
                 return None
+
+    def _format_program_output(self, program_title: str, program_time: str, episode_title: str, url_to_display: str) -> str:
+        """番組情報の出力をフォーマットする共通関数"""
+        return f"●{program_title}{program_time}\n・{episode_title}\n{url_to_display}\n"
