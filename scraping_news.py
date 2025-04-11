@@ -12,15 +12,11 @@ from selenium.common.exceptions import TimeoutException, NoSuchElementException,
 import logging
 from common.base_scraper import BaseScraper
 from common.episode_processor import EpisodeProcessor
-
-# common.utils から必要な要素をすべてインポート
 from common.utils import (
     setup_logger, WebDriverManager, parse_programs_config,
     sort_blocks_by_time, Constants, format_date,
     format_program_time, extract_program_time_info
 )
-
-# CustomExpectedConditions.pyをcommonに作成
 from common.CustomExpectedConditions import CustomExpectedConditions
 
 class NHKScraper(BaseScraper):
@@ -178,39 +174,38 @@ class TVTokyoScraper(BaseScraper):
         super().__init__(config)
 
     @BaseScraper.log_operation("番組情報の取得")
-    def get_program_info(self, program_name: str, target_date: str) -> str | None:
+    ### 修正 ###: 戻り値の型アノテーションを list[str] | None に変更
+    def get_program_info(self, program_name: str, target_date: str) -> list[str] | None:
         """指定された番組の情報を取得する"""
         if not self.validate_config(program_name):
             return None
 
         program_config = self.config.get(program_name)
+        # BaseScraper に execute_with_driver がある想定だが、提供コードにはないので
+        # WebDriverManager を直接使う形で修正 (もし execute_with_driver があればそちらを使うべき)
         with WebDriverManager() as driver:
             try:
                 formatted_date = format_date(target_date)
                 weekday = datetime.strptime(target_date, '%Y%m%d').weekday()
+                # 番組時間は共通のはずなのでここで決定
                 program_time = format_program_time(program_config['name'], weekday, program_config['time'])
                 self.logger.info(f"検索開始: {program_name}")
 
                 target_urls = []
+                # --- URL取得ロジック ---
                 if "urls" in program_config:
                     urls_value = program_config["urls"]
-                    # 型をチェックして処理を分岐
                     if isinstance(urls_value, str):
-                        # 文字列ならカンマ区切りで分割
                         target_urls = [url.strip() for url in urls_value.split(',') if url.strip()]
                     elif isinstance(urls_value, list):
-                        # リストならそのまま使用 (要素が文字列であることを期待)
-                        target_urls = [str(url).strip() for url in urls_value if str(url).strip()] # 念のため文字列変換とstrip
+                        target_urls = [str(url).strip() for url in urls_value if str(url).strip()]
                     else:
                         self.logger.warning(f"{program_name} の 'urls' キーの値が予期しない型 ({type(urls_value)}) です。'url' キーを試します。")
-                        # urls が不正でも url キーがあればそちらを試す
                         if "url" in program_config:
                             target_urls = [program_config["url"]]
                         else:
                             self.logger.error(f"{program_name} の設定に有効なURL ('urls' または 'url') が見つかりません。")
                             return None
-
-                    # urls キーの値が空だった場合のフォールバック
                     if not target_urls:
                         self.logger.warning(f"{program_name} の 'urls' キーから有効なURLを取得できませんでした。'url' キーを試します。")
                         if "url" in program_config:
@@ -224,9 +219,10 @@ class TVTokyoScraper(BaseScraper):
                     self.logger.error(f"{program_name} の設定に 'url' または 'urls' キーが見つかりません。")
                     return None
 
-                if not target_urls: # 念のため最終チェック
+                if not target_urls:
                     self.logger.error(f"{program_name} の処理で有効な target_urls が設定されませんでした。")
                     return None
+                # --- URL取得ロジックここまで ---
 
                 episode_urls = self._extract_tvtokyo_episode_urls(driver, target_urls, formatted_date, program_name)
 
@@ -234,25 +230,41 @@ class TVTokyoScraper(BaseScraper):
                     self.logger.warning(f"{program_name} の放送が見つかりませんでした。 (日付: {formatted_date}, URL: {target_urls})")
                     return None
 
-                episode_details = [
-                    self._fetch_tvtokyo_episode_details(driver, url, program_name) for url in episode_urls
-                ]
+                all_formatted_outputs = [] # 結果を格納するリスト
+                episode_details = []
+                # まず全ての詳細を取得試行
+                for url in episode_urls:
+                    detail = self._fetch_tvtokyo_episode_details(driver, url, program_name)
+                    if detail: # (title, url) のタプル、または None
+                        episode_details.append(detail)
 
+                # 有効な詳細情報のみを抽出 (title と url が両方存在する)
                 valid_details = [(title, url) for title, url in episode_details if title and url]
+
                 if not valid_details:
                     self.logger.warning(f"{program_name} の有効なエピソード詳細が見つかりませんでした。")
+                    return None # 有効なものが一つもなければ None
+
+                # 有効な各エピソードについて出力をフォーマット
+                for episode_title, episode_detail_url in valid_details:
+                    formatted_output = self._format_program_output(
+                        program_title=program_config['name'], # 番組名は共通
+                        program_time=program_time,         # 番組時間も共通
+                        episode_title=episode_title,       # 各エピソードのタイトル
+                        url_to_display=episode_detail_url  # 各エピソードのURL
+                    )
+                    if formatted_output: # フォーマット成功時のみ追加
+                        all_formatted_outputs.append(formatted_output)
+                        self.logger.info(f"{program_name} のエピソード情報をフォーマットしました: {episode_title}")
+
+                if not all_formatted_outputs:
+                    # ループは回ったが、何らかの理由でフォーマット結果が空の場合
+                    self.logger.warning(f"{program_name} について有効なフォーマット済み出力が得られませんでした。")
                     return None
 
-                first_title, first_url = valid_details[0]
-                formatted_output = self._format_program_output(
-                    program_title=program_config['name'],
-                    program_time=program_time,
-                    episode_title=first_title,
-                    url_to_display=first_url
-                )
-
-                self.logger.info(f"{program_name} の詳細情報を取得しました")
-                return formatted_output
+                # ログメッセージを少し変更 (件数を表示)
+                self.logger.info(f"{program_name} の詳細情報 ({len(all_formatted_outputs)} 件) を取得しました")
+                return all_formatted_outputs # フォーマットされた文字列のリストを返す
 
             except Exception as e:
                 self.logger.error(f"番組情報取得中にエラー: {e} - {program_name}", exc_info=True)
@@ -363,30 +375,43 @@ class TVTokyoScraper(BaseScraper):
             return None, None
 
 # --- 関数定義 ---
-def fetch_program_info(args: tuple[str, str, dict, str]) -> str | None:
+def fetch_program_info(args: tuple[str, str, dict, str]) -> str | list[str] | None:
     """並列処理用のラッパー関数"""
     task_type, program_name, programs, target_date = args
+    # 各プロセスでロガーを取得 (multiprocessing利用時の推奨)
     logger = logging.getLogger(__name__)
 
     try:
+        result = None # 初期化
         if task_type == 'nhk':
             scraper = NHKScraper(programs)
-            result = scraper.get_program_info(program_name, target_date)
+            result = scraper.get_program_info(program_name, target_date) # str | None
         elif task_type == 'tvtokyo':
             scraper = TVTokyoScraper(programs)
-            result = scraper.get_program_info(program_name, target_date)
+            result = scraper.get_program_info(program_name, target_date) # list[str] | None
         else:
             logger.error(f"不明なタスクタイプです: {task_type}")
             return None
 
+        # ログ出力の調整（任意）
         if result:
-            logger.info(f"{program_name} の情報を取得しました。")
-        else:
+            count = len(result) if isinstance(result, list) else 1
+            log_level = logging.INFO
+            if count == 0 and isinstance(result, list): # 空リストの場合
+                log_level = logging.WARNING
+                logger.log(log_level, f"{program_name} の情報の取得結果が空でした。")
+            else:
+                logger.log(log_level, f"{program_name} の情報 ({count} 件) を取得しました。")
+
+        elif result is None: # None の場合（取得失敗）
             logger.warning(f"{program_name} の情報の取得に失敗しました。")
-        return result
+        # else のケース（例: 空文字列など）は現状なさそうだが、必要なら追加
+
+        return result # str または list[str] または None を返す
 
     except Exception as e:
-        logger.error(f"{program_name} の情報取得中にエラーが発生しました: {e}")
+        # scraper 内でもログは出しているはずだが、念のためここでもエラーログを出力
+        logger.error(f"{program_name} の情報取得プロセスで予期せぬエラー: {e}", exc_info=True)
         return None
 
 def get_elapsed_time(start_time: float) -> float:
@@ -401,14 +426,71 @@ def process_scraping(target_date: str, nhk_programs: dict, tvtokyo_programs: dic
     return nhk_tasks + tvtokyo_tasks
 
 def write_results_to_file(sorted_blocks: list[str], output_file_path: str, logger) -> None:
-    """ソートされた結果をファイルに書き込む"""
+    """
+    ソートされた結果をファイルに書き込む。
+    連続する同じ番組ヘッダーを検出し、重複を抑制する。
+    """
     try:
+        previous_header = None  # 直前に書き込んだヘッダー行を保持する変数
         with open(output_file_path, "w", encoding="utf-8") as f:
             for i, block in enumerate(sorted_blocks):
-                f.write(block + '\n' if i < len(sorted_blocks) - 1 else block)
-        logger.info(f"ファイルへの書き込み完了: {output_file_path}")
+                # ブロックを改行で分割し、空行を除去
+                lines = [line for line in block.split('\n') if line.strip()]
+                if not lines:
+                    logger.debug(f"空のブロックをスキップしました: index={i}")
+                    continue # 空のブロックはスキップ
+
+                # ヘッダー行を取得 (通常は最初の行)
+                current_header = lines[0]
+
+                # ヘッダー行かどうかを判定 (●で始まるか)
+                is_header = current_header.startswith('●')
+
+                if is_header:
+                    # ヘッダー行の場合の処理
+                    if current_header == previous_header:
+                        # === ヘッダーが直前と同じ場合 ===
+                        # ヘッダー以外の行 (エピソード情報) のみを書き込む
+                        # 前のブロックとの間に既に改行が入っているはずなので、
+                        # 各エピソード行の末尾に改行を追加するだけで良い
+                        logger.debug(f"ヘッダー重複検出、結合します: {current_header}")
+                        for line in lines[1:]: # ヘッダー行を除いた部分
+                            f.write(line + '\n')
+                        # previous_header は変更しない（次のブロックも同じ可能性あり）
+
+                    else:
+                        # === ヘッダーが異なる場合 ===
+                        # 新しいブロックとして書き込む
+                        # 最初のブロック(i=0)でなければ、前のブロックとの間に区切り改行を入れる
+                        if i > 0:
+                            # 改行を1つ入れる (ブロック間のスペース)
+                            # 既に入っている改行と合わせて空行が1つできるように調整
+                            # (前のブロックの最後の行には改行がついている前提)
+                            f.write('\n') # ブロック間に空行を1つ
+
+                        logger.debug(f"新しいヘッダーを書き込みます: {current_header}")
+                        for line in lines: # ブロック全体を書き込む
+                            f.write(line + '\n')
+                        previous_header = current_header # ヘッダーを更新
+
+                else:
+                    # === ヘッダー行で始まらない予期しないブロックの場合 ===
+                    # とりあえず、前のブロックとの間に改行を入れてから、そのまま書き込む
+                    logger.warning(f"予期しない形式のブロック（ヘッダーなし）を検出: index={i}, content='{block[:50]}...'")
+                    if i > 0:
+                        f.write('\n') # 区切り改行
+                    for line in lines:
+                        f.write(line + '\n')
+                    previous_header = None # ヘッダーが不明なためリセット
+
+            # ファイル末尾に余分な改行が残る可能性があるので、必要なら削除
+            # (f.tell()を使う方法はバイナリモードでないと正確でない場合があるため注意)
+            # ここではシンプルにそのままにしておくか、テキストモードでの確実な方法を検討
+
+        logger.info(f"ファイルへの書き込み完了（ヘッダー重複抑制済み）: {output_file_path}")
+
     except Exception as e:
-        logger.error(f"ファイルへの書き込みに失敗しました: {e}")
+        logger.error(f"ファイルへの書き込み中にエラーが発生しました: {e}", exc_info=True)
         raise
 
 def process_and_sort_results(results: list[str | None], start_time: float, logger) -> list[str]:
@@ -462,7 +544,6 @@ def main():
 
     start_time = time.time()
 
-    # ロガーをメインプロセスで初期化
     logger = setup_logger(__name__)
 
     try:
@@ -472,29 +553,43 @@ def main():
         tasks = process_scraping(target_date, nhk_programs, tvtokyo_programs)
         total_tasks = len(tasks)
         processed_tasks = 0
-        results = []
+        results = [] # 最終的な文字列結果を格納するリスト
 
+        # --- 並列処理部分 ---
         with multiprocessing.Pool() as pool:
-            for result in pool.imap_unordered(fetch_program_info, tasks):
-                if result:
-                    results.append(result)
+            # imap_unordered で結果を順不同で受け取る
+            for result_item in pool.imap_unordered(fetch_program_info, tasks):
+                ### 修正 ###: 結果がリストか文字列かで処理を分岐
+                if result_item:
+                    if isinstance(result_item, list):
+                        # 結果がリストの場合、その要素をすべて results に追加
+                        results.extend(result_item)
+                    elif isinstance(result_item, str):
+                        # 結果が文字列の場合、そのまま results に追加
+                        results.append(result_item)
+                    # else: 想定外の型が来た場合の処理（必要ならログ出力など）
+                ### 修正ここまで ###
+
                 processed_tasks += 1
-
                 elapsed_time = get_elapsed_time(start_time)
-                print(f"\r進捗: {processed_tasks}/{total_tasks}（経過時間：{get_elapsed_time(start_time):.0f}秒）", end="", flush=True)
+                # 進捗表示を上書き (\r と end="" を使用)
+                print(f"\r進捗: {processed_tasks}/{total_tasks}（経過時間：{elapsed_time:.0f}秒）", end="", flush=True)
 
-        print() # 進捗表示後の改行
+        print() # 進捗表示の後に改行を入れる
 
         # 結果の集計とソート
-        sorted_blocks = process_and_sort_results(results, start_time, logger)
-
-        # ファイルへの書き込み
-        write_results_to_file(sorted_blocks, output_file_path, logger)
-
-        print(f"\n結果を {output_file_path} に出力しました。（経過時間：{get_elapsed_time(start_time):.0f}秒）") # \n を追加して改行
+        if not results:
+            logger.warning("有効な番組情報が一件も見つかりませんでした。")
+            print("有効な番組情報が見つからなかったため、ファイルは作成されませんでした。")
+        else:
+            # 結果のソート
+            sorted_blocks = process_and_sort_results(results, start_time, logger)
+            # ファイルへの書き込み
+            write_results_to_file(sorted_blocks, output_file_path, logger)
+            print(f"\n結果を {output_file_path} に出力しました。（経過時間：{get_elapsed_time(start_time):.0f}秒）")
 
     except Exception as e:
-        logger.error(f"メイン処理でエラーが発生しました: {e}")
+        logger.error(f"メイン処理でエラーが発生しました: {e}", exc_info=True) # トレースバックも出力
         print(f"エラーが発生しました: {e}")
         sys.exit(1)
 
