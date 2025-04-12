@@ -6,7 +6,12 @@ from datetime import datetime, timedelta
 import sys
 import re
 import json
+import unicodedata
+import logging # logging をインポート
 from common.utils import to_jst_datetime, to_utc_isoformat, extract_time_info_from_text, setup_logger
+
+# --- モジュールレベルのロガーを取得 ---
+logger = logging.getLogger(__name__)
 
 # 定数定義
 USE_API = True  # API を使用する場合は True に変更
@@ -212,53 +217,80 @@ def format_tweet_data(tweet_data):
     """
     ツイートデータを受け取り、指定されたフォーマットで整形されたテキストを返します。
     """
-    formatted_results = ""
-    logger = setup_logger(__name__)
+    formatted_results = [] # 文字列ではなくリストで返すように変更
+    # logger = setup_logger(__name__) # <-- 削除、モジュールレベルの logger を使用
+
+    if not tweet_data:
+        logger.warning("フォーマット対象のツイートデータがありません。")
+        return []
 
     for tweet in tweet_data:
-        text = tweet["text"]
+        text = tweet.get("text", "") # .getでキー存在確認
+        if not text:
+             logger.warning("テキストが空のツイートデータをスキップします。")
+             continue
         lines = text.splitlines()
 
-        # 各要素を抽出
         time_info, program_info = extract_program_info(lines, text)
         content = extract_content_from_lines(lines, text)
         url = extract_url_from_lines(lines)
 
-        # 結果を整形
-        formatted_text = f"{program_info}\n・{content}\n{url}\n\n"
-        formatted_results += formatted_text
+        # 各要素が取得できたか確認
+        if program_info == "番組情報の抽出に失敗" or not content or url == "URL抽出失敗":
+             logger.warning(f"フォーマットに必要な情報が不足しているためスキップ: {text[:50]}...")
+             continue
 
+        # 結果を整形してリストに追加
+        formatted_text = f"{program_info}\n・{content}\n{url}\n" # 末尾の改行を削除
+        formatted_results.append(formatted_text.strip()) # 前後の空白を削除して追加
+
+    logger.info(f"{len(formatted_results)}件のツイートをフォーマットしました。")
     return formatted_results
 
-def save_to_file(formatted_text, target_date):
-    """フォーマットされたテキストをファイルに保存する"""
+def save_to_file(formatted_list: list[str], target_date: str):
+    """フォーマットされたテキストのリストをファイルに保存する"""
+    if not formatted_list:
+         logger.warning("保存するフォーマット済みデータがありません。ファイルは作成されません。")
+         return
+
     filename = f"output/{target_date}_tweet.txt"
+    output_dir = "output"
+    os.makedirs(output_dir, exist_ok=True)
 
-    # outputディレクトリが存在しなければ作成
-    if not os.path.exists("output"):
-        os.makedirs("output")
-
-    # テキストファイルに書き出し
     try:
+        # リストの各要素を改行2つで結合して書き込む
+        content_to_write = "\n\n".join(formatted_list) + "\n" # 最後に改行を1つ追加
         with open(filename, "w", encoding="utf-8") as f:
-            f.write(formatted_text)
-        print(f"テキストファイルを {filename} に出力しました。")
+            f.write(content_to_write)
+        logger.info(f"テキストファイルを {filename} に出力しました。")
     except Exception as e:
-        print(f"ファイル書き込みエラー: {e}")
+        logger.error(f"ファイル書き込みエラー: {e}", exc_info=True)
 
 if __name__ == '__main__':
+    # --- Logger Setup ---
+    # main 関数の最初で一度だけ呼び出す
+    global_logger = setup_logger(level=logging.INFO)
+    # ---------------------
+
     if len(sys.argv) < 2:
+        global_logger.error("日付引数がありません。")
         print("使用方法: python get-tweet.py YYYYMMDD")
-        exit()
+        exit(1)
     target_date = sys.argv[1]
+    global_logger.info("=== get-tweet 処理開始 ===")
+    global_logger.info(f"対象日付: {target_date}")
 
-    user = "nhk_docudocu"
-    count = 10
+    user = "nhk_docudocu" # 定数化推奨
+    count = 20 # 検索件数を少し増やす (API上限は100)
 
-    # ツイート検索とデータ取得
     tweets = search_tweets(target_date, user, count)
 
-    # 結果の処理と保存
     if tweets:
-        formatted_text = format_tweet_data(tweets)
-        save_to_file(formatted_text, target_date)
+        # format_tweet_data はリストを返す
+        formatted_list = format_tweet_data(tweets)
+        # save_to_file でファイル保存
+        save_to_file(formatted_list, target_date)
+    else:
+         global_logger.warning("ツイートデータの取得に失敗したか、データがありませんでした。")
+
+    global_logger.info("=== get-tweet 処理終了 ===")

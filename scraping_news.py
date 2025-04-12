@@ -375,42 +375,36 @@ class TVTokyoScraper(BaseScraper):
             return None, None
 
 # --- 関数定義 ---
+# モジュールレベルのロガーを取得
+logger = logging.getLogger(__name__)
+
 def fetch_program_info(args: tuple[str, str, dict, str]) -> str | list[str] | None:
     """並列処理用のラッパー関数"""
     task_type, program_name, programs, target_date = args
-    # 各プロセスでロガーを取得 (multiprocessing利用時の推奨)
-    logger = logging.getLogger(__name__)
+    # ここで setup_logger は呼ばない。モジュールレベルの logger を使う。
 
     try:
         result = None # 初期化
+        scraper = None
         if task_type == 'nhk':
             scraper = NHKScraper(programs)
-            result = scraper.get_program_info(program_name, target_date) # str | None
+            result = scraper.get_program_info(program_name, target_date)
         elif task_type == 'tvtokyo':
             scraper = TVTokyoScraper(programs)
-            result = scraper.get_program_info(program_name, target_date) # list[str] | None
+            result = scraper.get_program_info(program_name, target_date)
         else:
             logger.error(f"不明なタスクタイプです: {task_type}")
             return None
 
-        # ログ出力の調整（任意）
-        if result:
-            count = len(result) if isinstance(result, list) else 1
-            log_level = logging.INFO
-            if count == 0 and isinstance(result, list): # 空リストの場合
-                log_level = logging.WARNING
-                logger.log(log_level, f"{program_name} の情報の取得結果が空でした。")
-            else:
-                logger.log(log_level, f"{program_name} の情報 ({count} 件) を取得しました。")
+        # --- ログ出力は BaseScraper のデコレータに任せる方針でも良い ---
+        # scraper.get_program_info が None を返した場合のログはデコレータ側で出力される想定
+        # if result is None:
+        #     logger.warning(f"{program_name} の情報の取得に失敗しました。")
 
-        elif result is None: # None の場合（取得失敗）
-            logger.warning(f"{program_name} の情報の取得に失敗しました。")
-        # else のケース（例: 空文字列など）は現状なさそうだが、必要なら追加
-
-        return result # str または list[str] または None を返す
+        return result
 
     except Exception as e:
-        # scraper 内でもログは出しているはずだが、念のためここでもエラーログを出力
+        # scraper 内でもエラーログは出るはずだが、プロセスレベルでのエラーも記録
         logger.error(f"{program_name} の情報取得プロセスで予期せぬエラー: {e}", exc_info=True)
         return None
 
@@ -425,107 +419,78 @@ def process_scraping(target_date: str, nhk_programs: dict, tvtokyo_programs: dic
     tvtokyo_tasks = [('tvtokyo', program_name, tvtokyo_programs, target_date) for program_name in tvtokyo_programs]
     return nhk_tasks + tvtokyo_tasks
 
-def write_results_to_file(sorted_blocks: list[str], output_file_path: str, logger) -> None:
-    """
-    ソートされた結果をファイルに書き込む。
-    連続する同じ番組ヘッダーを検出し、重複を抑制する。
-    """
+def write_results_to_file(sorted_blocks: list[str], output_file_path: str) -> None:
+    """ソートされた結果をファイルに書き込む (logger を引数で受け取らない)"""
+    # モジュールレベルの logger を使用
     try:
-        previous_header = None  # 直前に書き込んだヘッダー行を保持する変数
+        previous_header = None
         with open(output_file_path, "w", encoding="utf-8") as f:
+            # ... (ファイル書き込みロジックは変更なし) ...
             for i, block in enumerate(sorted_blocks):
-                # ブロックを改行で分割し、空行を除去
                 lines = [line for line in block.split('\n') if line.strip()]
                 if not lines:
                     logger.debug(f"空のブロックをスキップしました: index={i}")
-                    continue # 空のブロックはスキップ
-
-                # ヘッダー行を取得 (通常は最初の行)
+                    continue
                 current_header = lines[0]
-
-                # ヘッダー行かどうかを判定 (●で始まるか)
                 is_header = current_header.startswith('●')
-
                 if is_header:
-                    # ヘッダー行の場合の処理
                     if current_header == previous_header:
-                        # === ヘッダーが直前と同じ場合 ===
-                        # ヘッダー以外の行 (エピソード情報) のみを書き込む
-                        # 前のブロックとの間に既に改行が入っているはずなので、
-                        # 各エピソード行の末尾に改行を追加するだけで良い
                         logger.debug(f"ヘッダー重複検出、結合します: {current_header}")
-                        for line in lines[1:]: # ヘッダー行を除いた部分
+                        for line in lines[1:]:
                             f.write(line + '\n')
-                        # previous_header は変更しない（次のブロックも同じ可能性あり）
-
                     else:
-                        # === ヘッダーが異なる場合 ===
-                        # 新しいブロックとして書き込む
-                        # 最初のブロック(i=0)でなければ、前のブロックとの間に区切り改行を入れる
-                        if i > 0:
-                            # 改行を1つ入れる (ブロック間のスペース)
-                            # 既に入っている改行と合わせて空行が1つできるように調整
-                            # (前のブロックの最後の行には改行がついている前提)
-                            f.write('\n') # ブロック間に空行を1つ
-
+                        if i > 0: f.write('\n')
                         logger.debug(f"新しいヘッダーを書き込みます: {current_header}")
-                        for line in lines: # ブロック全体を書き込む
-                            f.write(line + '\n')
-                        previous_header = current_header # ヘッダーを更新
-
+                        for line in lines: f.write(line + '\n')
+                        previous_header = current_header
                 else:
-                    # === ヘッダー行で始まらない予期しないブロックの場合 ===
-                    # とりあえず、前のブロックとの間に改行を入れてから、そのまま書き込む
-                    logger.warning(f"予期しない形式のブロック（ヘッダーなし）を検出: index={i}, content='{block[:50]}...'")
-                    if i > 0:
-                        f.write('\n') # 区切り改行
-                    for line in lines:
-                        f.write(line + '\n')
-                    previous_header = None # ヘッダーが不明なためリセット
+                    logger.warning(f"予期しない形式のブロック（ヘッダーなし）: index={i}, content='{block[:50]}...'")
+                    if i > 0: f.write('\n')
+                    for line in lines: f.write(line + '\n')
+                    previous_header = None
 
-            # ファイル末尾に余分な改行が残る可能性があるので、必要なら削除
-            # (f.tell()を使う方法はバイナリモードでないと正確でない場合があるため注意)
-            # ここではシンプルにそのままにしておくか、テキストモードでの確実な方法を検討
-
-        logger.info(f"ファイルへの書き込み完了（ヘッダー重複抑制済み）: {output_file_path}")
+        logger.info(f"ファイルへの書き込み完了: {output_file_path}")
 
     except Exception as e:
         logger.error(f"ファイルへの書き込み中にエラーが発生しました: {e}", exc_info=True)
         raise
 
-def process_and_sort_results(results: list[str | None], start_time: float, logger) -> list[str]:
-    """
-    結果を番組ブロックごとに分割し、時間順にソートする
-    Args:
-        results: スクレイピング結果のリスト（Noneを含む可能性あり）
-        start_time: 処理開始時刻
-        logger: ログ出力用のロガー
-    Returns:
-        時間順にソートされた番組ブロックのリスト
-    """
-    logger.info(f"【後処理開始】結果を番組ブロックごとに分割中...（経過時間：{get_elapsed_time(start_time):.0f}秒）")
+def process_and_sort_results(results: list[str | list[str] | None], start_time: float) -> list[str]:
+    """結果を番組ブロックごとに分割し、時間順にソートする (logger を引数で受け取らない)"""
+    # モジュールレベルの logger を使用
+    logger.info(f"【後処理開始】結果の分割とソート...（経過時間：{get_elapsed_time(start_time):.0f}秒）")
 
-    # None を除外して有効な結果のみを処理
-    filtered_results = [res for res in results if res is not None]
+    # None を除外し、リストの場合は展開
+    flat_results = []
+    for res in results:
+        if isinstance(res, list):
+            flat_results.extend(r for r in res if isinstance(r, str)) # 文字列のみ追加
+        elif isinstance(res, str):
+            flat_results.append(res)
+    logger.debug(f"有効な結果件数: {len(flat_results)}")
+
     blocks = []
     current_block = []
-
-    # 番組ブロックごとに分割
-    for line in filtered_results:
-        if line.startswith('●'):
+    for line in flat_results:
+        # ● の前に半角スペースが入るように修正 (_format_program_output 側で対応済み)
+        if line.startswith('● '): # ヘッダー行の判定を修正
             if current_block:
                 blocks.append('\n'.join(current_block))
-            current_block = []
-        current_block.append(line)
+            current_block = [line] # 新しいブロックを開始
+        # ヘッダー行以外で、かつブロックが開始されている場合
+        elif current_block:
+             current_block.append(line)
+        # ヘッダーなしで始まった場合 (通常は発生しないはず)
+        else:
+             logger.warning(f"ヘッダーなしで始まる行を検出、スキップします: {line[:50]}...")
 
-    # 最後のブロックを追加
     if current_block:
         blocks.append('\n'.join(current_block))
 
-    logger.info(f"番組ブロックの分割完了: {len(blocks)} ブロック（経過時間：{get_elapsed_time(start_time):.0f}秒）")
-    logger.info(f"番組ブロックを時間順にソート中...（経過時間：{get_elapsed_time(start_time):.0f}秒）")
+    logger.info(f"番組ブロックの分割完了: {len(blocks)} ブロック")
+    logger.info(f"番組ブロックを時間順にソート中...")
 
-    # ブロックをソート
+    # ブロックをソート (sort_blocks_by_time は utils にある)
     sorted_blocks = sort_blocks_by_time(blocks)
     logger.info(f"番組ブロックのソート完了（経過時間：{get_elapsed_time(start_time):.0f}秒）")
 
@@ -533,7 +498,14 @@ def process_and_sort_results(results: list[str | None], start_time: float, logge
 
 def main():
     """メイン関数"""
+    # --- Logger Setup ---
+    # main 関数の最初で一度だけ呼び出す
+    # これにより、このスクリプト全体（インポートされたモジュール含む）の基本的なログ設定が行われる
+    global_logger = setup_logger(level=logging.INFO) # INFOレベル以上に設定
+    # ---------------------
+
     if len(sys.argv) != 2:
+        global_logger.error("日付引数がありません。")
         print("日付を引数で指定してください (例: python script.py 20250124)")
         sys.exit(1)
 
@@ -543,55 +515,60 @@ def main():
     output_file_path = os.path.join(output_dir, f"{target_date}.txt")
 
     start_time = time.time()
-
-    logger = setup_logger(__name__)
+    global_logger.info("=== scraping-news 処理開始 ===")
+    global_logger.info(f"対象日付: {target_date}")
 
     try:
+        # parse_programs_config は utils の関数 (内部でモジュールロガー使用)
         nhk_programs = parse_programs_config('ini/nhk_config.ini')
         tvtokyo_programs = parse_programs_config('ini/tvtokyo_config.ini')
 
-        tasks = process_scraping(target_date, nhk_programs, tvtokyo_programs)
+        if not nhk_programs and not tvtokyo_programs:
+             global_logger.error("設定ファイルの読み込みに失敗したか、設定が空です。処理を終了します。")
+             sys.exit(1)
+
+        # process_scraping は変更なし
+        tasks = process_scraping(target_date, nhk_programs or {}, tvtokyo_programs or {})
         total_tasks = len(tasks)
         processed_tasks = 0
-        results = [] # 最終的な文字列結果を格納するリスト
+        results = []
 
-        # --- 並列処理部分 ---
-        with multiprocessing.Pool() as pool:
-            # imap_unordered で結果を順不同で受け取る
-            for result_item in pool.imap_unordered(fetch_program_info, tasks):
-                ### 修正 ###: 結果がリストか文字列かで処理を分岐
-                if result_item:
-                    if isinstance(result_item, list):
-                        # 結果がリストの場合、その要素をすべて results に追加
-                        results.extend(result_item)
-                    elif isinstance(result_item, str):
-                        # 結果が文字列の場合、そのまま results に追加
+        if total_tasks == 0:
+             global_logger.warning("実行するタスクがありません。")
+        else:
+            global_logger.info(f"並列処理を開始します ({total_tasks} タスク)")
+            # multiprocessing.Pool を使う場合、サブプロセスでもログ設定が引き継がれるか確認が必要
+            # サブプロセス側 (fetch_program_info) でも logging.getLogger(__name__) で取得すれば
+            # 基本的にはルートロガーの設定が使われるはず
+            with multiprocessing.Pool() as pool:
+                for result_item in pool.imap_unordered(fetch_program_info, tasks):
+                    if result_item is not None:
                         results.append(result_item)
-                    # else: 想定外の型が来た場合の処理（必要ならログ出力など）
-                ### 修正ここまで ###
 
-                processed_tasks += 1
-                elapsed_time = get_elapsed_time(start_time)
-                # 進捗表示を上書き (\r と end="" を使用)
-                print(f"\r進捗: {processed_tasks}/{total_tasks}（経過時間：{elapsed_time:.0f}秒）", end="", flush=True)
-
-        print() # 進捗表示の後に改行を入れる
+                    processed_tasks += 1
+                    elapsed_time = get_elapsed_time(start_time)
+                    print(f"\r進捗: {processed_tasks}/{total_tasks}（経過時間：{elapsed_time:.0f}秒）", end="", flush=True)
+            print() # 進捗表示の後に改行
+            global_logger.info("並列処理が完了しました。")
 
         # 結果の集計とソート
         if not results:
-            logger.warning("有効な番組情報が一件も見つかりませんでした。")
+            global_logger.warning("有効な番組情報が一件も見つかりませんでした。")
             print("有効な番組情報が見つからなかったため、ファイルは作成されませんでした。")
         else:
-            # 結果のソート
-            sorted_blocks = process_and_sort_results(results, start_time, logger)
-            # ファイルへの書き込み
-            write_results_to_file(sorted_blocks, output_file_path, logger)
+            # process_and_sort_results, write_results_to_file は内部でモジュールロガーを使用
+            sorted_blocks = process_and_sort_results(results, start_time)
+            write_results_to_file(sorted_blocks, output_file_path)
             print(f"\n結果を {output_file_path} に出力しました。（経過時間：{get_elapsed_time(start_time):.0f}秒）")
 
     except Exception as e:
-        logger.error(f"メイン処理でエラーが発生しました: {e}", exc_info=True) # トレースバックも出力
+        global_logger.error(f"メイン処理で予期せぬエラーが発生しました: {e}", exc_info=True)
         print(f"エラーが発生しました: {e}")
         sys.exit(1)
+    finally:
+         global_logger.info(f"=== scraping-news 処理終了（総経過時間：{get_elapsed_time(start_time):.0f}秒） ===")
 
 if __name__ == "__main__":
+    # Windows で multiprocessing を使う場合に必要な場合がある
+    # multiprocessing.freeze_support()
     main()

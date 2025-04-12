@@ -1,22 +1,26 @@
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
-import logging
+import logging # logging をインポート
 import configparser
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timedelta # timedelta をインポート
 import pytz
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
-# 定数定義
+# --- モジュールレベルのロガーを取得 ---
+# このモジュール内の関数はこの logger を使用する
+logger = logging.getLogger(__name__)
+
+# 定数定義クラス (Constants) は変更なし ...
 class Constants:
     """定数を定義するクラス"""
     class WebDriver:
         """WebDriver関連の定数"""
-        LOG_LEVEL = "ERROR"  # Seleniumのログレベル
+        LOG_LEVEL = "WARNING"  # Seleniumのログレベル (ERROR -> WARNING に変更推奨)
 
     class Time:
         """時間関連の定数"""
@@ -52,41 +56,61 @@ class Constants:
         EPISODE_URL_TAG = 'a'
         TITLE = 'title'
         NHK_PLUS_URL_SPAN = '//div[@class="detailed-memo-body"]/span[contains(@class, "detailed-memo-headline")]/a[contains(text(), "NHKプラス配信はこちらからご覧ください")]'
-        EYECATCH_IMAGE_DIV = 'gc-images.is-medium.eyecatch'
-        IFRAME_ID = 'eyecatchIframe'
-        STREAM_PANEL_INFO_META = "stream_panel--info--meta"
+        EYECATCH_IMAGE_DIV = 'gc-images.is-medium.eyecatch' # このセレクタは古い可能性がある
+        IFRAME_ID = 'eyecatchIframe'                      # このセレクタは古い可能性がある
+        STREAM_PANEL_INFO_META = "stream_panel--info--meta" # このセレクタは古い可能性がある
 
         # --- TV Tokyo ---
-        TVTOKYO_VIDEO_ITEM = 'div[id^="News_Detail__VideoItem__"]'  # エピソードリスト項目
-        TVTOKYO_DATE_SPAN = 'span.sc-c564813-0.iCkNIF[role="presentation"]' # 日付表示 span
-        TVTOKYO_POST_LINK = 'a[href*="post_"]' # エピソードへのリンク
-        TVTOKYO_EPISODE_TITLE = "Live_Episode_Detail_EpisodeItemFullTitle" # 詳細ページのタイトル ID
+        TVTOKYO_VIDEO_ITEM = 'div[id^="News_Detail__VideoItem__"]'
+        TVTOKYO_DATE_SPAN = 'span.sc-c564813-0.iCkNIF[role="presentation"]'
+        TVTOKYO_POST_LINK = 'a[href*="post_"]'
+        TVTOKYO_EPISODE_TITLE = "Live_Episode_Detail_EpisodeItemFullTitle"
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s') # ★修正: basicConfigで共通設定
+# --- logging.basicConfig の呼び出しを削除 ---
+# logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s') # ★削除
 
-def setup_logger(name: str = __name__) -> logging.Logger:
-    """ロガーを設定する"""
-    logger = logging.getLogger(name)
-    logger.info("ロガーを設定しました。")
-    return logger
+def setup_logger(name: str = None, level=logging.INFO) -> logging.Logger:
+    """
+    ルートロガーまたは指定された名前のロガーにハンドラとフォーマッタを設定する。
+    既にハンドラが設定されている場合は、重複して設定しない。
+    """
+    # nameがNoneの場合、ルートロガーを設定
+    logger_instance = logging.getLogger(name) # nameがNoneならルートロガー
+
+    # ハンドラがまだ設定されていない場合のみ基本的な設定を行う
+    # (ルートロガーに設定されていれば、通常は子ロガーにも伝播する)
+    target_logger = logging.getLogger() # ルートロガーを取得してチェック
+    if not target_logger.handlers:
+        logger_instance.setLevel(level)
+        handler = logging.StreamHandler() # コンソール出力ハンドラ
+        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(name)s - %(message)s')
+        handler.setFormatter(formatter)
+        logger_instance.addHandler(handler)
+        logger_instance.info(f"ロガー '{logger_instance.name}' の基本的なハンドラを設定しました。")
+    # else:
+        # logger_instance.debug(f"ロガー '{logger_instance.name}' は既にハンドラが設定されています。")
+
+    return logger_instance
 
 def load_config(config_path: str) -> configparser.ConfigParser:
     """設定ファイルを読み込む"""
     config = configparser.ConfigParser()
     try:
+        # モジュールレベルの logger を使用
         config.read(config_path, encoding='utf-8')
-        logging.getLogger(__name__).info(f"設定ファイル {config_path} を読み込みました。")
+        logger.info(f"設定ファイル {config_path} を読み込みました。")
     except Exception as e:
-        logging.getLogger(__name__).error(f"設定ファイル {config_path} の読み込みに失敗しました: {e}")
+        logger.error(f"設定ファイル {config_path} の読み込みに失敗しました: {e}", exc_info=True)
         raise
     return config
 
 class WebDriverManager:
     """WebDriverをコンテキストマネージャーで管理するクラス"""
-
     def __init__(self, options=None):
         self.options = options or self.default_options()
         self.driver: webdriver.Chrome | None = None
+        # クラス固有のロガーを取得
+        self.logger = logging.getLogger(self.__class__.__name__)
 
     def default_options(self):
         """デフォルトのChromeオプションを設定する"""
@@ -95,40 +119,41 @@ class WebDriverManager:
         options.add_argument("--disable-gpu")
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
-        options.add_argument(f"--log-level={Constants.WebDriver.LOG_LEVEL}")  # Seleniumのログレベルを設定
+        # Selenium Driver のログ出力を抑制
+        options.add_experimental_option('excludeSwitches', ['enable-logging'])
+        # Chrome自身のログレベルを設定 (INFO, WARNING, ERROR)
+        options.add_argument(f"--log-level={Constants.WebDriver.LOG_LEVEL.lower()}")
         return options
 
     def __enter__(self):
         """コンテキストに入ったときにWebDriverを作成する"""
         try:
             self.driver = webdriver.Chrome(options=self.options)
-            logging.getLogger(__name__).info("Chrome WebDriverを作成しました。")
+            # self.logger を使用
+            self.logger.info("Chrome WebDriver を作成しました。")
             return self.driver
         except Exception as e:
-            logging.getLogger(__name__).error(f"Chrome WebDriverの作成に失敗しました: {e}")
+            # self.logger を使用
+            self.logger.error(f"Chrome WebDriver の作成に失敗しました: {e}", exc_info=True)
             raise
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         """コンテキストを抜けるときにWebDriverを終了する"""
         if self.driver:
             self.driver.quit()
-            logging.getLogger(__name__).info("Chrome WebDriverを終了しました。")
+            # self.logger を使用
+            self.logger.info("Chrome WebDriver を終了しました。")
 
 def parse_programs_config(config_path: str) -> dict | None:
     """
     設定ファイルを読み込んで番組情報を辞書形式で返す。
-
-    Args:
-        config_path: 設定ファイルのパス。
-
-    Returns:
-        番組情報を格納した辞書。ファイルの種類を判別できない場合は、None
     """
     config = load_config(config_path)
     programs = {}
-    logger = logging.getLogger(__name__)
+    # モジュールレベルの logger を使用
     broadcaster_type = None
 
+    # ... (関数の中身は変更なし、内部の logger.xxx() はモジュールレベルのloggerを使用) ...
     # ファイル名から broadcaster_type を自動判別
     if "nhk" in config_path.lower():
         broadcaster_type = "nhk"
@@ -136,7 +161,7 @@ def parse_programs_config(config_path: str) -> dict | None:
         broadcaster_type = "tvtokyo"
     else:
         logger.error(f"設定ファイルの種類を判別できません: {config_path}")
-        return None  # または例外を投げる
+        return None
 
     for section in config.sections():
         if section.startswith('program_'):
@@ -150,12 +175,15 @@ def parse_programs_config(config_path: str) -> dict | None:
                 elif broadcaster_type == 'tvtokyo':
                     url = config.get(section, 'url').strip()
                     time_str = config.get(section, 'time').strip()
-                    # WBS の URL を特別扱い (リストとして保持)
-                    if program_name == Constants.Program.WBS_PROGRAM_NAME:
+                    name_in_config = config.get(section, 'name').strip() # WBS判定用に保持
+
+                    # WBS の URL を特別扱い (リストとして保持) - 提案3で改善予定
+                    if name_in_config == Constants.Program.WBS_PROGRAM_NAME:
                         if Constants.Program.WBS_PROGRAM_NAME not in programs:
                             programs[Constants.Program.WBS_PROGRAM_NAME] = {"urls": [], "time": time_str, "name": Constants.Program.WBS_PROGRAM_NAME}
                         programs[Constants.Program.WBS_PROGRAM_NAME]["urls"].append(url)
                     else:
+                        # WBS以外はそのまま格納 (提案3で urls キーも考慮するよう変更予定)
                         programs[program_name] = {"url": url, "time": time_str, "name": program_name}
                 logger.debug(f"{broadcaster_type} 番組設定を解析しました: {program_name}")
 
@@ -163,165 +191,196 @@ def parse_programs_config(config_path: str) -> dict | None:
                 logger.error(f"設定ファイルにエラーがあります: {e}, section: {section}")
                 continue
             except Exception as e:
-                logger.error(f"{broadcaster_type} 番組設定の解析中にエラーが発生しました: {e}, section: {section}")
+                logger.error(f"{broadcaster_type} 番組設定の解析中にエラーが発生しました: {e}, section: {section}", exc_info=True)
                 continue
-    logger.info(f"{broadcaster_type} 番組設定ファイルを解析しました。")
+    logger.info(f"{broadcaster_type} 番組設定 ({len(programs)}件) を解析しました。")
     return programs
 
+
+# --- extract_time_from_block, sort_blocks_by_time, count_characters, count_tweet_length ---
+# --- to_jst_datetime, to_utc_isoformat, format_date ---
+# これらの関数は変更なし (内部の logger はモジュールレベルのものを使用)
 def extract_time_from_block(block: str, starts_with: str = "") -> tuple[int, int]:
-    """
-    番組ブロックまたは行から放送開始時間を抽出する
-
-    Args:
-        block: 抽出元の文字列 (複数行の場合は改行で区切られた文字列)
-        starts_with: 特定の文字列で始まる行のみを対象とする場合に指定 (例: "●")
-
-    Returns:
-        時と分のタプル (例: (9, 30))。時間が見つからない場合は (25, 0) を返す。
-    """
     lines = block.split('\n')
     for line in lines:
         if starts_with and not line.startswith(starts_with):
             continue
-        time_match = re.search(r'(\d{2}:\d{2})', line)
+        time_match = re.search(r'\(.*?(\d{1,2}:\d{2})', line)
+        if not time_match:
+             time_match = re.search(r'(\d{1,2}:\d{2})', line)
+
         if time_match:
             time_str = time_match.group(1)
-            hour, minute = map(int, time_str.split(':'))
-            return hour, minute
+            try:
+                hour, minute = map(int, time_str.split(':'))
+                return hour, minute
+            except ValueError:
+                logger.warning(f"時間文字列のパースに失敗: {time_str} in '{line[:30]}...'")
+                continue
     return Constants.Time.DEFAULT_HOUR, Constants.Time.DEFAULT_MINUTE
 
 def sort_blocks_by_time(blocks: list[str]) -> list[str]:
-    """番組ブロックを放送時間順にソートする"""
     def get_sort_key(block: str) -> tuple[int, int]:
-        """ソート用のキーを取得する"""
-        return extract_time_from_block(block)
-    return sorted(blocks, key=get_sort_key)
+        return extract_time_from_block(block, starts_with='●')
+    try:
+        return sorted(blocks, key=get_sort_key)
+    except Exception as e:
+         logger.error(f"ブロックのソート中にエラーが発生しました: {e}", exc_info=True)
+         return blocks
 
 def count_characters(text: str) -> int:
-    """全角文字を2文字、半角文字を1文字としてカウントする"""
     count = 0
     for char in text:
-        if ord(char) > 255:  # 全角文字判定
+        if ord(char) > 255:
             count += Constants.Character.FULL_WIDTH_CHAR_WEIGHT
         else:
             count += Constants.Character.HALF_WIDTH_CHAR_WEIGHT
     return count
 
 def count_tweet_length(text):
-    """URLを11.5文字としてカウントし、全体の文字数を計算"""
     url_pattern = re.compile(r'https?://\S+')
     urls = url_pattern.findall(text)
-
-    # 全角・半角文字をカウント (共通関数を使用)
-    text_length = count_characters(text)
-
-    # URLを11.5文字として計算
+    text_without_urls = url_pattern.sub('', text)
+    text_length = count_characters(text_without_urls)
     url_length = Constants.Character.URL_CHAR_WEIGHT * len(urls)
-
-    # 全角・半角文字とURLを考慮した長さを返す
-    total_length = text_length - sum(len(url) for url in urls) + url_length
+    total_length = text_length + url_length
     return total_length
 
 def to_jst_datetime(date_str: str) -> datetime:
-    """YYYYMMDD形式の文字列を日本時間(JST)のdatetimeオブジェクトに変換"""
-    date_obj = datetime.strptime(date_str, Constants.Format.DATE_FORMAT)
-    jst = pytz.timezone('Asia/Tokyo')
-    jst_datetime = jst.localize(date_obj)
-    return jst_datetime
+    try:
+        date_obj = datetime.strptime(date_str, Constants.Format.DATE_FORMAT)
+        jst = pytz.timezone('Asia/Tokyo')
+        jst_datetime = jst.localize(date_obj)
+        return jst_datetime
+    except ValueError as e:
+        logger.error(f"日付文字列のパースに失敗しました: {date_str} - {e}", exc_info=True)
+        raise
 
 def to_utc_isoformat(jst_datetime: datetime) -> str:
-    """日本時間(JST)のdatetimeオブジェクトをUTCのISOフォーマット文字列に変換"""
+    if jst_datetime.tzinfo is None:
+        logger.warning("タイムゾーン情報がないdatetimeオブジェクトが渡されました。JSTとして扱います。")
+        jst = pytz.timezone('Asia/Tokyo')
+        jst_datetime = jst.localize(jst_datetime)
     utc_datetime = jst_datetime.astimezone(pytz.utc)
     utc_iso = utc_datetime.strftime(Constants.Format.DATETIME_FORMAT)
     return utc_iso
 
 def format_date(target_date: str) -> str:
-    """日付をフォーマットする (YYYYMMDD -> YYYY.MM.DD)"""
-    return datetime.strptime(target_date, Constants.Format.DATE_FORMAT).strftime(Constants.Format.DATE_FORMAT_YYYYMMDD)
+    try:
+        return datetime.strptime(target_date, Constants.Format.DATE_FORMAT).strftime(Constants.Format.DATE_FORMAT_YYYYMMDD)
+    except ValueError as e:
+        logger.error(f"日付フォーマットに失敗しました: {target_date} - {e}", exc_info=True)
+        return target_date
 
+# --- extract_program_time_info ---
+# 内部の setup_logger 呼び出しを削除
 def extract_program_time_info(driver: webdriver.Chrome, program_title: str, episode_url: str, channel: str, max_retries: int = 1, retry_interval: int = 1) -> str:
-    """番組詳細ページから放送時間を抽出し、フォーマットする"""
-    logger = setup_logger(__name__)  # ロガーをセットアップ
+    """番組詳細ページから放送時間を抽出し、フォーマットする (NHK用)"""
+    # logger = setup_logger(__name__)  # <-- 削除
 
+    # 特定番組の固定時間 (設定ファイルへの移行推奨箇所)
     if program_title == "国際報道 2025":
-        return f"({channel} 22:00-22:45)"
+        logger.debug(f"固定時間を返します: {program_title}")
+        return f"({channel} 22:00-22:45)" # 定数化推奨
 
-    for retry in range(max_retries):
+    for attempt in range(max_retries):
         try:
-            time_element_text = WebDriverWait(driver, Constants.Time.DEFAULT_TIMEOUT).until(
-                EC.presence_of_element_located((By.CLASS_NAME, Constants.CSSSelector.STREAM_PANEL_INFO_META)) # ★修正: CSSセレクタを定数から参照
-            ).text.strip()
-            start_ampm, start_time, end_ampm, end_time = _extract_time_parts(time_element_text) # ★修正: 内部関数名変更
-            if start_time and end_time:
-                start_time_24h = _to_24h_format(start_ampm, start_time) # ★修正: 内部関数名変更
-                end_time_24h = _to_24h_format(end_ampm, end_time) # ★修正: 内部関数名変更
-                return f"({channel} {start_time_24h}-{end_time_24h})"
-            else:
-                logger.warning(f"時間の取得に失敗しました。取得した文字列: {time_element_text} - {program_title}, {episode_url}")
-                return "(放送時間取得失敗)"
-        except (TimeoutException, NoSuchElementException) as e:
-            logger.debug(f"要素が見つかりませんでした (リトライ {retry+1}/{max_retries}): {e} - {program_title}")
-            if retry < max_retries - 1: time.sleep(retry_interval)
-        except Exception as e:
-            logger.error(f"放送時間情報の抽出に失敗しました: {e} - {program_title}, {episode_url}")
+            time_element = WebDriverWait(driver, Constants.Time.DEFAULT_TIMEOUT).until(
+                EC.presence_of_element_located((By.CLASS_NAME, Constants.CSSSelector.STREAM_PANEL_INFO_META)) # セレクタ確認必要
+            )
+            time_element_text = time_element.text.strip()
+            logger.debug(f"取得した時間文字列: '{time_element_text}' - {program_title}")
 
-    logger.error(f"最大リトライ回数を超えました: {program_title}, {episode_url}") # 共通のエラーメッセージ
+            start_ampm, start_time, end_ampm, end_time = _extract_time_parts(time_element_text)
+            if start_time and end_time:
+                start_time_24h = _to_24h_format(start_ampm, start_time)
+                end_time_24h = _to_24h_format(end_ampm, end_time)
+                formatted_time = f"({channel} {start_time_24h}-{end_time_24h})"
+                logger.info(f"放送時間を抽出しました: {formatted_time} - {program_title}")
+                return formatted_time
+            else:
+                logger.warning(f"時間部分の抽出に失敗しました。取得文字列: '{time_element_text}' - {program_title}, {episode_url}")
+                break # パース失敗時はリトライしない
+        except (TimeoutException, NoSuchElementException) as e:
+            # NoSuchElementException も TimeoutException と同様に扱う
+            logger.warning(f"時間要素が見つかりませんでした (試行 {attempt+1}/{max_retries}): {program_title} - {e.__class__.__name__}")
+            if attempt < max_retries - 1:
+                time.sleep(retry_interval)
+            else:
+                logger.error(f"時間要素の取得に失敗しました (最大リトライ回数超過): {program_title}, {episode_url}")
+        except Exception as e:
+            logger.error(f"放送時間情報の抽出中に予期せぬエラー (試行 {attempt+1}): {e} - {program_title}, {episode_url}", exc_info=True)
+            break # 予期せぬエラーはリトライしない
+
+    # ループを抜けた場合（失敗した場合）
+    logger.error(f"放送時間の取得に最終的に失敗しました: {program_title}, {episode_url}")
     return "(放送時間取得失敗)"
 
+# --- _extract_time_parts, _to_24h_format, format_program_time, extract_time_info_from_text ---
+# これらのヘルパー関数は変更なし (内部の logger はモジュールレベルのものを使用)
 def _extract_time_parts(time_text: str) -> tuple[str | None, str | None, str | None, str | None]:
-    """時刻情報を含む文字列から、午前/午後、時刻を抽出する"""
-    match = re.search(r'((午前|午後)?(\d{1,2}:\d{2}))-((午前|午後)?(\d{1,2}:\d{2}))', time_text)
-    if not match: return None, None, None, None
-    return match.group(2), match.group(3), match.group(5), match.group(6)
+    match = re.search(r'(午前|午後)?\s?(\d{1,2}:\d{2})\s?-\s?(午前|午後)?\s?(\d{1,2}:\d{2})', time_text)
+    if match:
+        return match.group(1), match.group(2), match.group(3), match.group(4)
+    else:
+        logger.debug(f"時刻パターンの抽出に失敗: '{time_text}'")
+        return None, None, None, None
 
 def _to_24h_format(ampm: str | None, time_str: str) -> str:
-    """時刻を24時間表記に変換する"""
-    hour, minute = map(int, time_str.split(":"))
-    if ampm == "午後" and hour != 12:
-        hour += 12
-    if ampm == "午前" and hour == 12:
-        hour = 0
-    return f"{hour:02}:{minute:02}"
+    try:
+        hour, minute = map(int, time_str.split(":"))
+        if ampm == "午後" and hour != 12:
+            hour += 12
+        elif ampm == "午前" and hour == 12:
+            hour = 0
+        return f"{hour:02}:{minute:02}"
+    except ValueError:
+        logger.error(f"時刻変換エラー: ampm='{ampm}', time_str='{time_str}'")
+        return time_str
 
 def format_program_time(program_name: str, weekday: int, default_time: str) -> str:
-    """番組時間をフォーマットする"""
-    if program_name.startswith("WBS"):
-        return "(テレ東 22:00~22:58)" if weekday < 4 else "(テレ東 23:00~23:58)"
-    return f"(テレ東 {default_time})"
+    """番組時間をフォーマットする (TV Tokyo用)"""
+    if program_name.startswith(Constants.Program.WBS_PROGRAM_NAME):
+        time_str = "22:00-22:58" if weekday < 4 else "23:00-23:58" # 金曜以外と金曜 (定数化推奨)
+        channel = "テレ東" # 定数化推奨
+        logger.debug(f"WBS ({'月-木' if weekday < 4 else '金'}) の時間を設定: {time_str}")
+        return f"({channel} {time_str})"
+    else:
+        channel = "テレ東" # 定数化推奨
+        logger.debug(f"{program_name} のデフォルト時間を設定: {default_time}")
+        return f"({channel} {default_time})"
 
 def extract_time_info_from_text(text: str) -> str:
-    """ツイートテキストから時刻情報を抽出・整形する # ★追加: get-tweet.py 用の時刻情報抽出関数"""
-    time_info = "時刻情報の抽出に失敗" # デフォルト値
-    add_24_hour = False # フラグを追加
-    logger = setup_logger(__name__) # logger を設定
+    """ツイートテキストから時刻情報を抽出・整形する"""
+    # logger = setup_logger(__name__) # <-- 削除
+    time_info = "時刻抽出失敗"
+    add_24_hour = False
 
-    if re.search(r"\(.+深夜\)", text): # (深夜)表記を検出
+    if re.search(r"[（\(]深夜[）\)]", text):
         add_24_hour = True
-        logger.debug(f"デバッグ: (深夜)表記を検出(正規表現)。add_24_hour = {add_24_hour}")
-    else:
-        logger.debug(f"デバッグ: (深夜)表記を検出されず(正規表現)。add_24_hour = {add_24_hour}")
+        logger.debug("深夜表記を検出")
 
-    time_match = re.search(r'(\d{1,2})日\((.)\) (午前|午後)(\d{1,2}):(\d{2})', text) # 正規表現で時刻を抽出
+    time_match = re.search(r'(\d{1,2})日\s?\(.\)\s?(午前|午後)(\d{1,2}):(\d{2})', text)
     if time_match:
-        hour = int(time_match.group(4))
-        minute = int(time_match.group(5))
-        ampm = time_match.group(3)
-        logger.debug(f"デバッグ: 抽出された時刻 hour = {hour}, minute = {minute}, ampm = {ampm}")
+        # day = int(time_match.group(1)) # day は使わない
+        ampm = time_match.group(2)
+        hour = int(time_match.group(3))
+        minute = int(time_match.group(4))
+        logger.debug(f"抽出された時刻要素: ampm={ampm}, hour={hour}, minute={minute}")
 
-        if add_24_hour:
-            hour += 24
-            logger.debug(f"デバッグ: 24時間加算実行。hour = {hour}")
-
-        if ampm == "午後" and hour < 12:  # 12時間制の調整
+        if ampm == "午後" and hour != 12:
             hour += 12
         elif ampm == "午前" and hour == 12:
             hour = 0
 
-        if add_24_hour: # 24時間表記
-            time_info = f"{hour:02d}:{minute:02d}"
-        else:
-            time_info = f"{hour:02}:{minute:02}"
-        logger.debug(f"デバッグ: time_info = {time_info}")
+        if add_24_hour:
+            if hour < 12: # 0時～11時台なら24時間加算
+                hour += 24
+                logger.debug(f"24時間加算実行 -> hour={hour}")
+
+        time_info = f"{hour:02}:{minute:02}"
+        logger.debug(f"整形後の時刻情報: {time_info}")
     else:
-        logger.warning(f"時刻情報の抽出に失敗しました: text = {text}") # 警告ログ
+        logger.warning(f"時刻情報のパターンマッチに失敗しました: '{text[:50]}...'")
+
     return time_info

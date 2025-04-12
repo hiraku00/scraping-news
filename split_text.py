@@ -1,243 +1,200 @@
 import sys
 import os
 import re
+import logging # logging をインポート
 from common.constants import (
     TWEET_MAX_LENGTH,
+    get_header_text,
     get_header_length
 )
-from common.utils import count_tweet_length
+# count_tweet_length, setup_logger をインポート
+from common.utils import count_tweet_length, setup_logger
 
-# コマンドライン引数から日付を取得
-if len(sys.argv) < 2:
-    print("使用方法: python split-text.py <日付 (例: 20250129)>")
-    sys.exit(1)
+# --- モジュールレベルのロガーを取得 ---
+logger = logging.getLogger(__name__)
 
-date = sys.argv[1]
-file_path = f"output/{date}.txt"
-backup_file_path = f"output/{date}_before-split.txt"
-
-# 指定された日付のファイルを読み込む
-try:
-    with open(file_path, "r", encoding="utf-8") as file:
-        text = file.read().strip()  # ファイル全体を文字列として読み込む
-except FileNotFoundError:
-    print(f"エラー: {file_path} が見つかりません。")
-    sys.exit(1)
-
-def split_program(program_block_text: str, is_first_block_overall: bool, header_length: int, max_length: int = TWEET_MAX_LENGTH) -> list[str]:
-    """
-    1つの番組ブロックを指定された文字数制限内で分割する関数。
-    分割された場合、2つ目以降のツイートには番組名ヘッダーを付けない。
-
-    Args:
-        program_block_text (str): 分割対象の番組ブロックテキスト。
-        is_first_block_overall (bool): このブロックが "ファイル全体の" 最初のブロックかどうか。
-        header_length (int): 最初のツイートに付加されるヘッダーの長さ。
-        max_length (int): ツイートの最大文字数。
-
-    Returns:
-        list: 分割されたツイートのリスト。
-              最初の要素には番組名ヘッダーが付く。
-              分割された場合の2つ目以降の要素は内容のみ。
-    """
-    lines = program_block_text.strip().split('\n')
-    if not lines:
-        return []
-
-    program_name = lines[0] # ●番組名...
-    content_text = '\n'.join(lines[1:]) # 番組名を除いた内容部分
-
-    # タイトルとURLのペアを抽出
-    item_pairs_matches = re.findall(r'^(・.*?)\n(https?://.*?)$', content_text, re.MULTILINE)
-    item_pairs = [f"{title}\n{url}" for title, url in item_pairs_matches]
-
-    # --- アイテムがない場合の処理 ---
-    if not item_pairs:
-        # 最初のブロックならヘッダー長を考慮
-        effective_max_len = max_length - header_length if is_first_block_overall else max_length
-        if count_tweet_length(program_name) <= effective_max_len:
-            return [program_name]
-        else:
-            print(f"警告: 番組名だけで文字数超過。分割できません。文字数: {count_tweet_length(program_name)}")
-            return [program_name] # 投稿時にエラーになる想定
-
+# 関数定義 (split_program, split_by_program) は変更なし
+# (内部の print は logger.debug などに置き換えても良い)
+def split_program(text, max_length=TWEET_MAX_LENGTH, header_length=0):
     split_tweets = []
-    current_tweet_items = [] # 現在のツイート部分に含める item_pairs の文字列リスト
-    is_first_part_of_this_block = True # このブロック内で最初のツイート部分か？
+    lines = text.strip().split('\n') # 先頭・末尾の空白を除去してから分割
 
-    for item in item_pairs:
-        # --- 現在のツイート部分に追加した場合のテキストと文字数を計算 ---
-        items_to_check = current_tweet_items + [item]
-        current_content = "\n".join(items_to_check)
+    program_name_line = "" # 番組名が含まれるヘッダー行
+    items = [] # タイトルとURLのペアを格納するリスト
 
-        if is_first_part_of_this_block:
-            # このブロックの最初のツイート部分の場合
-            potential_tweet_text = f"{program_name}\n{current_content}"
-            # さらにファイル全体の最初のツイート部分ならヘッダー長を考慮
-            current_max_len = max_length - header_length if is_first_block_overall else max_length
-        else:
-            # このブロックの2つ目以降のツイート部分の場合 (ヘッダーなし)
-            potential_tweet_text = current_content
-            current_max_len = max_length # ヘッダー長は考慮不要
-
-        # --- 文字数チェック ---
-        if count_tweet_length(potential_tweet_text) <= current_max_len:
-            # 制限内なら現在のツイート部分に追加
-            current_tweet_items.append(item)
-        else:
-            # 制限を超える場合
-            if current_tweet_items: # 現在のツイート部分にアイテムが既にあるか？
-                # --- 現在のツイート部分を確定 ---
-                final_items_content = "\n".join(current_tweet_items)
-                if is_first_part_of_this_block:
-                    # 最初の部分だったのでヘッダー付きで確定
-                    final_tweet = f"{program_name}\n{final_items_content}"
-                else:
-                    # 2つ目以降の部分だったので内容のみで確定
-                    final_tweet = final_items_content
-                split_tweets.append(final_tweet)
-
-                # --- 新しいツイート部分を開始 ---
-                is_first_part_of_this_block = False # 次からはヘッダーなし
-                current_tweet_items = [item] # 新しいアイテムで開始
-
-                # 新しいツイート部分（アイテム1つだけ）が制限を超えるかチェック (ヘッダーなし)
-                new_part_text = item
-                if count_tweet_length(new_part_text) > max_length:
-                    print(f"警告: 新しいツイート部分開始時、アイテム1つで文字数超過: {count_tweet_length(new_part_text)} > {max_length}")
-                    print(new_part_text)
+    # 最初にヘッダー行とアイテムを分離
+    if lines and lines[0].startswith("● "):
+        program_name_line = lines[0]
+        item_lines = lines[1:]
+        i = 0
+        while i < len(item_lines):
+            if item_lines[i].startswith("・"):
+                 title = item_lines[i]
+                 i += 1
+                 url = item_lines[i] if i < len(item_lines) and item_lines[i].startswith("http") else ""
+                 if url:
+                      items.append((title, url))
+                      i += 1
+                 else: # URLが見つからない場合（形式エラーなど）
+                      logger.warning(f"アイテムのURLが見つかりません: {title}")
+                      # タイトルのみ追加するか、アイテムごと無視するか検討
+                      items.append((title, "(URLなし)")) # 仮にURLなしとして追加
+                      # i+=1 # URL行がなかったのでインクリメントしない
             else:
-                # 現在のツイート部分が空（＝最初のアイテムだけで超過）
-                if is_first_part_of_this_block:
-                    # ヘッダー付きでアイテム1つ
-                    single_item_tweet = f"{program_name}\n{item}"
-                    check_len = max_length - header_length if is_first_block_overall else max_length
-                else:
-                    # ヘッダーなしでアイテム1つ (理論上ほぼ起こらないはず)
-                    single_item_tweet = item
-                    check_len = max_length
+                 logger.warning(f"予期しない形式の行です、スキップします: {item_lines[i][:50]}...")
+                 i += 1
+    else:
+         logger.error(f"ヘッダー行が見つからないか形式が不正です: {text[:50]}...")
+         return [] # 分割不可
 
-                if count_tweet_length(single_item_tweet) > check_len:
-                    print(f"警告: 最初のアイテムだけで文字数超過: {count_tweet_length(single_item_tweet)} > {check_len}")
-                    print(single_item_tweet)
+    # アイテムを結合してツイートを作成
+    current_tweet_text = program_name_line # 最初のツイートはヘッダーから開始
+    first_item_processed = False
 
-                split_tweets.append(single_item_tweet)
-                # 次のアイテムのためにリセット
-                is_first_part_of_this_block = False # 次からはヘッダーなし
-                current_tweet_items = []
+    for title, url in items:
+        item_text = f"\n{title}\n{url}" # アイテムの前に改行を入れる
+        current_length = count_tweet_length(current_tweet_text)
+        item_length = count_tweet_length(item_text)
+        available_length = max_length - (header_length if not first_item_processed else 0)
 
-    # ループ終了後、残っているアイテムがあれば最後のツイート部分として追加
-    if current_tweet_items:
-        final_items_content = "\n".join(current_tweet_items)
-        if is_first_part_of_this_block:
-            # ブロック全体が1ツイートに収まった場合 (ヘッダー付き)
-            final_tweet = f"{program_name}\n{final_items_content}"
+        # 現在のツイートに追加できるか？
+        if current_length + item_length <= available_length:
+            current_tweet_text += item_text
+            first_item_processed = True
         else:
-            # 最後の部分（ヘッダーなし）
-            final_tweet = final_items_content
-        split_tweets.append(final_tweet)
+            # 追加できないので、現在のツイートを確定し、新しいツイートを開始
+            split_tweets.append(current_tweet_text.strip())
+            # 新しいツイートはアイテムから開始（ヘッダーは含めない）
+            current_tweet_text = f"{title}\n{url}" # アイテムの前の改行は不要
+            first_item_processed = True # 新しいツイートが始まったので True
 
-    # 念のためのチェック (通常は不要)
-    if not split_tweets and item_pairs:
-        print("警告: アイテムがあったにも関わらず、分割結果が空になりました。")
-        return [program_block_text] # 元のまま返す
+            # 新しいツイートが単独で長すぎる場合のチェック (通常は起こらないはずだが念のため)
+            if count_tweet_length(current_tweet_text) > max_length:
+                 logger.error(f"分割後のツイートも長すぎます。スキップ: {current_tweet_text[:50]}...")
+                 # このアイテムをスキップするか、さらに分割するか検討
+                 current_tweet_text = "" # スキップする場合
 
+    # 最後のツイートを追加
+    if current_tweet_text:
+        split_tweets.append(current_tweet_text.strip())
+
+    logger.info(f"プログラムを {len(split_tweets)} 個のツイートに分割しました: {program_name_line[:30]}...")
     return split_tweets
 
-# プログラム（ブロック）ごとにテキストを分割する関数 (既存のものを流用)
 def split_by_program(text):
-    # ●で始まる行を探し、その行を含めて次の●まで（または終端まで）をブロックとする
-    programs = re.split(r'(?=^●)', text, flags=re.MULTILINE)
-    # 先頭の空要素や空白のみの要素を除去
-    program_list = [p.strip() for p in programs if p and p.strip()]
+    # 正規表現で ● から始まるブロックを抽出
+    programs = re.findall(r"(^●.*?)(?=^●|\Z)", text, re.MULTILINE | re.DOTALL)
+    program_list = [p.strip() for p in programs if p.strip()] # 前後の空白を除去し、空のブロックを除外
+    logger.info(f"テキストを {len(program_list)} 個のプログラムブロックに分割しました。")
     return program_list
 
-# テキストをプログラムごとに分割
-programs = split_by_program(text)
 
-all_split_tweets = [] # 全ての分割されたツイートを格納するリスト
-needs_split = False
-header_length = get_header_length(date)
+if __name__ == "__main__":
+    # --- Logger Setup ---
+    global_logger = setup_logger(level=logging.INFO)
+    # ---------------------
 
-print("\n")
-print("============================== 分割前のテキスト ==============================")
-# まず分割が必要かチェック (可読性のため分割処理とは別ループにする)
-for i, program_block in enumerate(programs):
-    length = count_tweet_length(program_block)
-    print(program_block)
-    print(f"文字数: {length}")
-    print("-" * 20)
+    if len(sys.argv) < 2:
+        global_logger.error("日付引数がありません。")
+        print("使用方法: python split-text.py <日付 (例: 20250129)>")
+        sys.exit(1)
 
-    # 最初のブロックの場合はヘッダーを考慮して判定
-    effective_max_len = TWEET_MAX_LENGTH - header_length if i == 0 else TWEET_MAX_LENGTH
-    if length > effective_max_len:
-        needs_split = True
-        # 1つでも分割が必要ならチェックを終了しても良い
-        # break # チェックだけならここで抜けてもOK
+    date = sys.argv[1]
+    global_logger.info("=== split-text 処理開始 ===")
+    global_logger.info(f"対象日付: {date}")
 
-print(f"\n分割が必要か: {needs_split}")
+    file_path = f"output/{date}.txt"
+    backup_file_path = f"output/{date}_before-split.txt"
 
-if needs_split:
-    # ファイルバックアップ (変更なし)
     try:
-        os.rename(file_path, backup_file_path)
-        print(f"ファイルを {backup_file_path} にバックアップしました。")
+        with open(file_path, "r", encoding="utf-8") as file:
+            text = file.read().strip()
+        global_logger.info(f"ファイル {file_path} を読み込みました。")
     except FileNotFoundError:
-        print(f"バックアップ元ファイル {file_path} が見つかりませんでした。処理を中断します。")
+        global_logger.error(f"ファイル {file_path} が見つかりません。")
+        print(f"エラー: {file_path} が見つかりません。")
         sys.exit(1)
     except Exception as e:
-        print(f"バックアップ処理中にエラーが発生しました: {e}")
+        global_logger.error(f"ファイル読み込みエラー: {e}", exc_info=True)
         sys.exit(1)
 
+    programs = split_by_program(text)
+    if not programs:
+         global_logger.warning("処理対象のプログラムブロックが見つかりませんでした。")
+         print("処理対象のプログラムブロックが見つかりませんでした。")
+         sys.exit(0)
 
-    # 各プログラムブロックを分割
-    for i, program_block in enumerate(programs):
-        # is_first_block_overall は、ループのインデックス i が 0 かどうかで判定
-        is_first_overall = (i == 0)
-        length = count_tweet_length(program_block)
-        # 有効な最大長を計算（分割判定用）
-        effective_max_len = TWEET_MAX_LENGTH - header_length if is_first_overall else TWEET_MAX_LENGTH
+    needs_split = False
+    header_length = get_header_length(date) # ヘッダー長を先に計算
 
-        if length > effective_max_len:
-            # 分割が必要なブロック
-            print(f"\nブロック分割実行: {program_block.splitlines()[0]}...")
-            # ★修正: is_first_overall を渡す
-            split_tweets_for_block = split_program(program_block, is_first_overall, header_length)
-            all_split_tweets.extend(split_tweets_for_block)
-        else:
-            # 分割不要なブロックはそのまま追加
-            all_split_tweets.append(program_block.strip())
+    global_logger.info("\n分割前の文字数チェック:")
+    for i, program_text in enumerate(programs):
+        length = count_tweet_length(program_text)
+        header_info = f"(ヘッダー長 {header_length} 込み)" if i == 0 else ""
+        limit = TWEET_MAX_LENGTH - (header_length if i == 0 else 0)
+        logger.info(f"- ブロック {i+1}: {length} 文字 {header_info} (制限: {limit})")
+        if length > limit:
+            logger.warning(f"  -> ブロック {i+1} は文字数制限を超えているため分割が必要です。")
+            needs_split = True
+            # break # 一つでも超えていたら分割処理へ
 
-    # 分割されたテキストをファイルに書き込む
-    try:
-        with open(file_path, "w", encoding="utf-8") as f:
-            for i, item in enumerate(all_split_tweets):
-                f.write(item)
-                if i < len(all_split_tweets) - 1:
-                    # tweet.py が \n\n で分割しているので、それに合わせる
-                    f.write("\n\n")
-        print(f"\n分割されたツイートは {file_path} に保存しました。")
-    except Exception as e:
-        # (エラー処理とバックアップ復元 - 変更なし)
-        print(f"分割されたツイートの保存中にエラーが発生しました: {e}")
+    if needs_split:
+        global_logger.info("文字数超過のため、ファイルの分割処理を実行します。")
+        # ファイルバックアップ
         try:
-            os.rename(backup_file_path, file_path)
-            print(f"バックアップファイル {backup_file_path} を {file_path} に復元しました。")
-        except Exception as restore_e:
-            print(f"バックアップファイルの復元中にエラーが発生しました: {restore_e}")
-        sys.exit(1)
+            # バックアップファイルが既に存在する場合は上書きしないようにするか、連番をつける
+            if os.path.exists(backup_file_path):
+                 timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+                 backup_file_path = f"output/{date}_before-split_{timestamp}.txt"
+                 global_logger.warning(f"バックアップファイルが既に存在するため、別名で保存します: {backup_file_path}")
+            os.rename(file_path, backup_file_path)
+            global_logger.info(f"ファイルを {backup_file_path} にバックアップしました。")
+        except FileNotFoundError:
+            global_logger.error(f"バックアップ元ファイル {file_path} が見つかりませんでした。処理を中断します。")
+            sys.exit(1)
+        except Exception as e:
+            global_logger.error(f"バックアップ処理中にエラーが発生しました: {e}", exc_info=True)
+            sys.exit(1)
 
-    # 分割後の文字数と内容を出力
-    print("\n")
-    print("============================== 分割後のテキスト ==============================")
-    for item in all_split_tweets:
-        length = count_tweet_length(item)
-        print(item)
-        print(f"文字数: {length}")
-        print("-" * 60)
+        # 分割処理
+        new_tweet_list = []
+        for i, program_text in enumerate(programs):
+            limit = TWEET_MAX_LENGTH - (header_length if i == 0 else 0)
+            if count_tweet_length(program_text) > limit:
+                # split_program はリストを返す
+                split_tweets = split_program(program_text, max_length=TWEET_MAX_LENGTH, header_length=(header_length if i == 0 else 0))
+                new_tweet_list.extend(split_tweets)
+            else:
+                new_tweet_list.append(program_text) # 分割不要
 
-else:
-    # 分割が不要だった場合 (変更なし)
-    print("\n分割は不要でした。ファイルは変更されません。")
+        # 分割されたテキストをファイルに書き込む (間に空行を入れる)
+        try:
+            content_to_write = "\n\n".join(new_tweet_list) + "\n" # 最後に改行追加
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(content_to_write)
+            global_logger.info(f"分割されたツイート ({len(new_tweet_list)}件) は {file_path} に保存しました。")
 
-print("\n処理完了")
+        except Exception as e:
+            global_logger.error(f"分割されたツイートの保存中にエラーが発生しました: {e}", exc_info=True)
+            # バックアップファイルを元に戻す
+            try:
+                os.rename(backup_file_path, file_path)
+                global_logger.info(f"エラー発生のため、バックアップファイル {backup_file_path} を {file_path} に復元しました。")
+            except Exception as restore_e:
+                global_logger.error(f"バックアップファイルの復元中にエラーが発生しました: {restore_e}", exc_info=True)
+            sys.exit(1)
+
+        # 分割後の文字数と内容を出力
+        global_logger.info("\n分割後のテキストチェック:")
+        for i, item in enumerate(new_tweet_list):
+            length = count_tweet_length(item)
+            limit = TWEET_MAX_LENGTH - (header_length if i == 0 else 0)
+            status = "OK" if length <= limit else "NG (制限超過)"
+            logger.info(f"- ツイート {i+1}: {length} 文字 (制限: {limit}) - {status}")
+            # logger.debug(item) # 必要なら内容もデバッグ出力
+            # print("-" * 60)
+
+    else:
+        global_logger.info("分割は不要でした。ファイルは変更されません。")
+
+    global_logger.info("=== split-text 処理終了 ===")
