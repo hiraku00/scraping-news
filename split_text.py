@@ -13,68 +13,57 @@ from common.utils import count_tweet_length, setup_logger
 # --- モジュールレベルのロガーを取得 ---
 logger = logging.getLogger(__name__)
 
-# 関数定義 (split_program, split_by_program) は変更なし
-# (内部の print は logger.debug などに置き換えても良い)
 def split_program(text, max_length=TWEET_MAX_LENGTH, header_length=0):
     split_tweets = []
-    lines = text.strip().split('\n') # 先頭・末尾の空白を除去してから分割
+    lines = text.strip().split('\n')
 
-    program_name_line = "" # 番組名が含まれるヘッダー行
-    items = [] # タイトルとURLのペアを格納するリスト
+    program_name_line = ""
+    items = []
 
-    # 最初にヘッダー行とアイテムを分離
-    if lines and lines[0].startswith("● "):
+    if lines and lines[0].startswith("●"):
         program_name_line = lines[0]
         item_lines = lines[1:]
         i = 0
         while i < len(item_lines):
             if item_lines[i].startswith("・"):
-                 title = item_lines[i]
-                 i += 1
-                 url = item_lines[i] if i < len(item_lines) and item_lines[i].startswith("http") else ""
-                 if url:
-                      items.append((title, url))
-                      i += 1
-                 else: # URLが見つからない場合（形式エラーなど）
-                      logger.warning(f"アイテムのURLが見つかりません: {title}")
-                      # タイトルのみ追加するか、アイテムごと無視するか検討
-                      items.append((title, "(URLなし)")) # 仮にURLなしとして追加
-                      # i+=1 # URL行がなかったのでインクリメントしない
+                title = item_lines[i]
+                i += 1
+                url = item_lines[i] if i < len(item_lines) and item_lines[i].startswith("http") else ""
+                if url:
+                    items.append((title, url))
+                    i += 1
+                else:
+                    logger.warning(f"アイテムのURLが見つかりません: {title}")
+                    items.append((title, "(URLなし)"))
             else:
-                 logger.warning(f"予期しない形式の行です、スキップします: {item_lines[i][:50]}...")
-                 i += 1
+                logger.warning(f"予期しない形式の行です、スキップします: {item_lines[i][:50]}...")
+                i += 1
     else:
-         logger.error(f"ヘッダー行が見つからないか形式が不正です: {text[:50]}...")
-         return [] # 分割不可
+        # ここでエラーログは出すが、処理は続行せず空リストを返す
+        logger.error(f"ヘッダー行が見つからないか形式が不正です: {text[:50]}...")
+        return [] # 分割不可
 
-    # アイテムを結合してツイートを作成
-    current_tweet_text = program_name_line # 最初のツイートはヘッダーから開始
+    # アイテム結合ロジックは変更なし
+    current_tweet_text = program_name_line
     first_item_processed = False
-
     for title, url in items:
-        item_text = f"\n{title}\n{url}" # アイテムの前に改行を入れる
+        item_text = f"\n{title}\n{url}"
         current_length = count_tweet_length(current_tweet_text)
         item_length = count_tweet_length(item_text)
-        available_length = max_length - (header_length if not first_item_processed else 0)
+        limit = max_length - (header_length if not first_item_processed else 0)
 
-        # 現在のツイートに追加できるか？
-        if current_length + item_length <= available_length:
+        if current_length + item_length <= limit:
             current_tweet_text += item_text
             first_item_processed = True
         else:
-            # 追加できないので、現在のツイートを確定し、新しいツイートを開始
             split_tweets.append(current_tweet_text.strip())
-            # 新しいツイートはアイテムから開始（ヘッダーは含めない）
-            current_tweet_text = f"{title}\n{url}" # アイテムの前の改行は不要
-            first_item_processed = True # 新しいツイートが始まったので True
-
-            # 新しいツイートが単独で長すぎる場合のチェック (通常は起こらないはずだが念のため)
+            # 次のツイートはヘッダーなしでアイテムから開始
+            current_tweet_text = f"{title}\n{url}" # ヘッダーなし
+            first_item_processed = True
             if count_tweet_length(current_tweet_text) > max_length:
-                 logger.error(f"分割後のツイートも長すぎます。スキップ: {current_tweet_text[:50]}...")
-                 # このアイテムをスキップするか、さらに分割するか検討
-                 current_tweet_text = "" # スキップする場合
+                logger.error(f"分割後のツイートも長すぎます。スキップ: {current_tweet_text[:50]}...")
+                current_tweet_text = ""
 
-    # 最後のツイートを追加
     if current_tweet_text:
         split_tweets.append(current_tweet_text.strip())
 
@@ -82,7 +71,6 @@ def split_program(text, max_length=TWEET_MAX_LENGTH, header_length=0):
     return split_tweets
 
 def split_by_program(text):
-    # 正規表現で ● から始まるブロックを抽出
     programs = re.findall(r"(^●.*?)(?=^●|\Z)", text, re.MULTILINE | re.DOTALL)
     program_list = [p.strip() for p in programs if p.strip()] # 前後の空白を除去し、空のブロックを除外
     logger.info(f"テキストを {len(program_list)} 個のプログラムブロックに分割しました。")
@@ -120,9 +108,9 @@ if __name__ == "__main__":
 
     programs = split_by_program(text)
     if not programs:
-         global_logger.warning("処理対象のプログラムブロックが見つかりませんでした。")
-         print("処理対象のプログラムブロックが見つかりませんでした。")
-         sys.exit(0)
+        global_logger.warning("処理対象のプログラムブロックが見つかりませんでした。")
+        print("処理対象のプログラムブロックが見つかりませんでした。")
+        sys.exit(0)
 
     needs_split = False
     header_length = get_header_length(date) # ヘッダー長を先に計算
@@ -144,9 +132,9 @@ if __name__ == "__main__":
         try:
             # バックアップファイルが既に存在する場合は上書きしないようにするか、連番をつける
             if os.path.exists(backup_file_path):
-                 timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-                 backup_file_path = f"output/{date}_before-split_{timestamp}.txt"
-                 global_logger.warning(f"バックアップファイルが既に存在するため、別名で保存します: {backup_file_path}")
+                timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+                backup_file_path = f"output/{date}_before-split_{timestamp}.txt"
+                global_logger.warning(f"バックアップファイルが既に存在するため、別名で保存します: {backup_file_path}")
             os.rename(file_path, backup_file_path)
             global_logger.info(f"ファイルを {backup_file_path} にバックアップしました。")
         except FileNotFoundError:

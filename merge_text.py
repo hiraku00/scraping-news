@@ -10,15 +10,15 @@ from common.utils import setup_logger, sort_blocks_by_time
 logger = logging.getLogger(__name__)
 
 def extract_time_from_line(line: str) -> tuple[int, int] | None:
-    if line.startswith('● '): # ● の後のスペースを考慮
+    if line.startswith('●'):
         time_match = re.search(r'(\d{2}:\d{2})', line)
         if time_match:
             time_str = time_match.group(1)
             try: # エラーハンドリング追加
-                 hour, minute = map(int, time_str.split(':'))
-                 return hour, minute
+                hour, minute = map(int, time_str.split(':'))
+                return hour, minute
             except ValueError:
-                 logger.warning(f"時間文字列のパース失敗 (extract_time_from_line): {time_str} in '{line[:50]}...'")
+                logger.warning(f"時間文字列のパース失敗 (extract_time_from_line): {time_str} in '{line[:50]}...'")
     return None
 
 
@@ -74,17 +74,17 @@ def sort_and_merge_text(file1_path: str, file2_path: str, output_path: str, befo
             # 結合前に file2 の末尾と file1 の先頭に不要な空行があれば調整
             # file2 の末尾に空行がなければ改行追加
             if combined_lines and not combined_lines[-1].strip() == "":
-                 if not combined_lines[-1].endswith('\n'):
-                     combined_lines[-1] += '\n'
-                 # file1 が空でなく、combined_lines も空でない場合、間に空行を1つ入れる
-                 if file1_lines and combined_lines:
-                      logger.debug("ファイル間に区切りの改行を追加します。")
-                      combined_lines.append('\n') # 区切りとして空行を追加
+                if not combined_lines[-1].endswith('\n'):
+                    combined_lines[-1] += '\n'
+                # file1 が空でなく、combined_lines も空でない場合、間に空行を1つ入れる
+                if file1_lines and combined_lines:
+                    logger.debug("ファイル間に区切りの改行を追加します。")
+                    combined_lines.append('\n') # 区切りとして空行を追加
 
             # file1 の先頭の空行は削除 (任意)
             while file1_lines and not file1_lines[0].strip():
-                 logger.debug("file1 の先頭の空行を削除します。")
-                 file1_lines.pop(0)
+                logger.debug("file1 の先頭の空行を削除します。")
+                file1_lines.pop(0)
 
             combined_lines.extend(file1_lines)
             logger.info(f"{file1_path} の内容を結合しました。")
@@ -105,23 +105,15 @@ def sort_and_merge_text(file1_path: str, file2_path: str, output_path: str, befo
     current_block = []
     logger.debug("結合後の行をブロックに分割します...")
     for i, line in enumerate(combined_lines):
-        # ● の後にスペースがあるか確認
-        if line.startswith('● '):
+        if line.startswith('●'):
             if current_block:
                 blocks.append(''.join(current_block))
                 logger.debug(f"ブロックを追加 (行数: {len(current_block)}): {current_block[0][:50]}...")
             current_block = [line]
-        # 空行でブロックを区切る場合 (任意)
-        # elif not line.strip() and current_block:
-        #     blocks.append(''.join(current_block))
-        #     logger.debug(f"ブロックを追加 (空行区切り, 行数: {len(current_block)}): {current_block[0][:50]}...")
-        #     current_block = [] # 空行はブロックに含めない
         elif current_block: # ブロックが開始されていれば追加
             current_block.append(line)
         elif line.strip(): # ブロックが開始されておらず、空行でもない場合 (エラーの可能性)
-             logger.warning(f"ヘッダーなしで始まる行を検出 (行 {i+1}): {line[:50]}...")
-             # この行を無視するか、新しいブロックとして開始するか検討
-             # current_block = [line] # 新しいブロックとして開始する場合
+            logger.warning(f"ヘッダーなしで始まる行を検出 (行 {i+1}): {line[:50]}...")
 
     if current_block:
         blocks.append(''.join(current_block))
@@ -196,8 +188,7 @@ def main():
         # sort_and_merge_text内でバックアップ復元試行済み
         sys.exit(1)
     finally:
-         global_logger.info("=== merge-text 処理終了 ===")
-
+        global_logger.info("=== merge-text 処理終了 ===")
 
 if __name__ == "__main__":
     main()

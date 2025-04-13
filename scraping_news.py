@@ -79,7 +79,6 @@ class NHKScraper(BaseScraper):
 
         return self._format_fallback_output(driver, program_title, episode_url, channel, episode_title)
 
-
     def _format_bs_special_output(self, driver, program_title: str, channel: str, episode_url: str, episode_title: str) -> str:
         """BSスペシャル用の出力フォーマット"""
         # BSスペシャルは固定の時間枠を使用
@@ -456,15 +455,12 @@ def write_results_to_file(sorted_blocks: list[str], output_file_path: str) -> No
         raise
 
 def process_and_sort_results(results: list[str | list[str] | None], start_time: float) -> list[str]:
-    """結果を番組ブロックごとに分割し、時間順にソートする (logger を引数で受け取らない)"""
-    # モジュールレベルの logger を使用
+    """結果を番組ブロックごとに分割し、時間順にソートする"""
     logger.info(f"【後処理開始】結果の分割とソート...（経過時間：{get_elapsed_time(start_time):.0f}秒）")
-
-    # None を除外し、リストの場合は展開
     flat_results = []
     for res in results:
         if isinstance(res, list):
-            flat_results.extend(r for r in res if isinstance(r, str)) # 文字列のみ追加
+            flat_results.extend(r for r in res if isinstance(r, str))
         elif isinstance(res, str):
             flat_results.append(res)
     logger.debug(f"有効な結果件数: {len(flat_results)}")
@@ -472,28 +468,22 @@ def process_and_sort_results(results: list[str | list[str] | None], start_time: 
     blocks = []
     current_block = []
     for line in flat_results:
-        # ● の前に半角スペースが入るように修正 (_format_program_output 側で対応済み)
-        if line.startswith('● '): # ヘッダー行の判定を修正
+        if line.startswith('●'):
             if current_block:
                 blocks.append('\n'.join(current_block))
-            current_block = [line] # 新しいブロックを開始
-        # ヘッダー行以外で、かつブロックが開始されている場合
+            current_block = [line]
         elif current_block:
-             current_block.append(line)
-        # ヘッダーなしで始まった場合 (通常は発生しないはず)
+            current_block.append(line)
         else:
-             logger.warning(f"ヘッダーなしで始まる行を検出、スキップします: {line[:50]}...")
+            logger.warning(f"ヘッダーなしで始まる行を検出、スキップします: {line[:50]}...")
 
     if current_block:
         blocks.append('\n'.join(current_block))
 
     logger.info(f"番組ブロックの分割完了: {len(blocks)} ブロック")
     logger.info(f"番組ブロックを時間順にソート中...")
-
-    # ブロックをソート (sort_blocks_by_time は utils にある)
-    sorted_blocks = sort_blocks_by_time(blocks)
+    sorted_blocks = sort_blocks_by_time(blocks) # sort_blocks_by_time は修正済みの extract_time_from_block を使う
     logger.info(f"番組ブロックのソート完了（経過時間：{get_elapsed_time(start_time):.0f}秒）")
-
     return sorted_blocks
 
 def main():
@@ -524,8 +514,8 @@ def main():
         tvtokyo_programs = parse_programs_config('ini/tvtokyo_config.ini')
 
         if not nhk_programs and not tvtokyo_programs:
-             global_logger.error("設定ファイルの読み込みに失敗したか、設定が空です。処理を終了します。")
-             sys.exit(1)
+            global_logger.error("設定ファイルの読み込みに失敗したか、設定が空です。処理を終了します。")
+            sys.exit(1)
 
         # process_scraping は変更なし
         tasks = process_scraping(target_date, nhk_programs or {}, tvtokyo_programs or {})
@@ -534,7 +524,7 @@ def main():
         results = []
 
         if total_tasks == 0:
-             global_logger.warning("実行するタスクがありません。")
+            global_logger.warning("実行するタスクがありません。")
         else:
             global_logger.info(f"並列処理を開始します ({total_tasks} タスク)")
             # multiprocessing.Pool を使う場合、サブプロセスでもログ設定が引き継がれるか確認が必要
@@ -566,7 +556,7 @@ def main():
         print(f"エラーが発生しました: {e}")
         sys.exit(1)
     finally:
-         global_logger.info(f"=== scraping-news 処理終了（総経過時間：{get_elapsed_time(start_time):.0f}秒） ===")
+        global_logger.info(f"=== scraping-news 処理終了（総経過時間：{get_elapsed_time(start_time):.0f}秒） ===")
 
 if __name__ == "__main__":
     # Windows で multiprocessing を使う場合に必要な場合がある

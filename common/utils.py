@@ -1,10 +1,10 @@
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
-import logging # logging をインポート
+import logging
 import configparser
 import re
 import time
-from datetime import datetime, timedelta # timedelta をインポート
+from datetime import datetime, timedelta
 import pytz
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.common.by import By
@@ -207,7 +207,7 @@ def extract_time_from_block(block: str, starts_with: str = "") -> tuple[int, int
             continue
         time_match = re.search(r'\(.*?(\d{1,2}:\d{2})', line)
         if not time_match:
-             time_match = re.search(r'(\d{1,2}:\d{2})', line)
+            time_match = re.search(r'(\d{1,2}:\d{2})', line)
 
         if time_match:
             time_str = time_match.group(1)
@@ -225,8 +225,8 @@ def sort_blocks_by_time(blocks: list[str]) -> list[str]:
     try:
         return sorted(blocks, key=get_sort_key)
     except Exception as e:
-         logger.error(f"ブロックのソート中にエラーが発生しました: {e}", exc_info=True)
-         return blocks
+        logger.error(f"ブロックのソート中にエラーが発生しました: {e}", exc_info=True)
+        return blocks
 
 def count_characters(text: str) -> int:
     count = 0
@@ -352,7 +352,6 @@ def format_program_time(program_name: str, weekday: int, default_time: str) -> s
 
 def extract_time_info_from_text(text: str) -> str:
     """ツイートテキストから時刻情報を抽出・整形する"""
-    # logger = setup_logger(__name__) # <-- 削除
     time_info = "時刻抽出失敗"
     add_24_hour = False
 

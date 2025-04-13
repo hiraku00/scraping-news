@@ -123,12 +123,8 @@ class BaseScraper(ABC):
         # 必要であれば、urlなどの必須キーの存在チェックも追加
         program_data = self.config[program_name]
         if not isinstance(program_data, dict):
-             self.logger.error(f"{program_name} の設定データが辞書ではありません。")
-             return False
-        # NHK か TVTokyo かで必須キーが異なる可能性がある
-        # if "url" not in program_data and "urls" not in program_data: # url または urls が必須の場合
-        #     self.logger.error(f"{program_name} の設定に 'url' または 'urls' がありません。")
-        #     return False
+            self.logger.error(f"{program_name} の設定データが辞書ではありません。")
+            return False
         return True
 
     def execute_with_driver(self, operation: Callable[[Any], T]) -> T | None:
@@ -145,19 +141,17 @@ class BaseScraper(ABC):
     def _format_program_output(self, program_title: str, program_time: str | None, episode_title: str, url_to_display: str) -> str:
         """番組情報の出力をフォーマットする共通関数"""
         if not program_time: # program_time が None や空文字列の場合
-             program_time = "(放送時間不明)"
-             self.logger.warning(f"放送時間が不明です。デフォルト値を設定: {program_title} - {episode_title}")
+            program_time = "(放送時間不明)"
+            self.logger.warning(f"放送時間が不明です。デフォルト値を設定: {program_title} - {episode_title}")
 
         # タイトルが空の場合の対処
         if not episode_title:
-             episode_title = "(タイトル不明)"
-             self.logger.warning(f"エピソードタイトルが不明です: {program_title}")
+            episode_title = "(タイトル不明)"
+            self.logger.warning(f"エピソードタイトルが不明です: {program_title}")
 
         # URLが空の場合の対処
         if not url_to_display:
-             url_to_display = "(URL不明)"
-             self.logger.warning(f"表示URLが不明です: {program_title} - {episode_title}")
+            url_to_display = "(URL不明)"
+            self.logger.warning(f"表示URLが不明です: {program_title} - {episode_title}")
 
-
-        # フォーマットを修正（●の後ろに半角スペース）
-        return f"● {program_title} {program_time}\n・{episode_title}\n{url_to_display}\n"
+        return f"●{program_title}{program_time}\n・{episode_title}\n{url_to_display}\n"

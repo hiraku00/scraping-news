@@ -227,8 +227,8 @@ def format_tweet_data(tweet_data):
     for tweet in tweet_data:
         text = tweet.get("text", "") # .getでキー存在確認
         if not text:
-             logger.warning("テキストが空のツイートデータをスキップします。")
-             continue
+            logger.warning("テキストが空のツイートデータをスキップします。")
+            continue
         lines = text.splitlines()
 
         time_info, program_info = extract_program_info(lines, text)
@@ -237,8 +237,8 @@ def format_tweet_data(tweet_data):
 
         # 各要素が取得できたか確認
         if program_info == "番組情報の抽出に失敗" or not content or url == "URL抽出失敗":
-             logger.warning(f"フォーマットに必要な情報が不足しているためスキップ: {text[:50]}...")
-             continue
+            logger.warning(f"フォーマットに必要な情報が不足しているためスキップ: {text[:50]}...")
+            continue
 
         # 結果を整形してリストに追加
         formatted_text = f"{program_info}\n・{content}\n{url}\n" # 末尾の改行を削除
@@ -250,8 +250,8 @@ def format_tweet_data(tweet_data):
 def save_to_file(formatted_list: list[str], target_date: str):
     """フォーマットされたテキストのリストをファイルに保存する"""
     if not formatted_list:
-         logger.warning("保存するフォーマット済みデータがありません。ファイルは作成されません。")
-         return
+        logger.warning("保存するフォーマット済みデータがありません。ファイルは作成されません。")
+        return
 
     filename = f"output/{target_date}_tweet.txt"
     output_dir = "output"
@@ -291,6 +291,6 @@ if __name__ == '__main__':
         # save_to_file でファイル保存
         save_to_file(formatted_list, target_date)
     else:
-         global_logger.warning("ツイートデータの取得に失敗したか、データがありませんでした。")
+        global_logger.warning("ツイートデータの取得に失敗したか、データがありませんでした。")
 
     global_logger.info("=== get-tweet 処理終了 ===")

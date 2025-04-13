@@ -23,10 +23,10 @@ def extract_urls_from_file(file_path: str) -> list[str]:
                 url_matches = re.findall(r'https?://[^\s"\'<>]+', line)
                 if url_matches:
                     for url in url_matches:
-                         # 末尾の不要な文字（例: `。」`など）があれば除去する処理を追加しても良い
-                         cleaned_url = url.rstrip('。、」)')
-                         urls.append(cleaned_url)
-                         logger.debug(f"URLを抽出しました: {cleaned_url}")
+                        # 末尾の不要な文字（例: `。」`など）があれば除去する処理を追加しても良い
+                        cleaned_url = url.rstrip('。、」)')
+                        urls.append(cleaned_url)
+                        logger.debug(f"URLを抽出しました: {cleaned_url}")
         logger.info(f"ファイル {file_path} からURL ({len(urls)}件) を抽出しました。")
     except FileNotFoundError:
         logger.error(f"ファイル {file_path} が見つかりませんでした。")
@@ -46,14 +46,14 @@ def open_urls_from_config(config_programs: dict, program_name: str, block_urls: 
     if program_name not in config_programs:
         logger.warning(f"設定ファイルに {program_name} の情報が見つかりませんでした。出力ファイルのURLのみ開きます。")
         if block_urls:
-             for url in block_urls:
-                 logger.info(f"出力ファイルのURL ({program_name}): {url} を開きます")
-                 webbrowser.open(url)
-                 time.sleep(Constants.Time.SLEEP_SECONDS) # 連続オープンを防ぐ
-             return True # URLを開いたのでTrue
+            for url in block_urls:
+                logger.info(f"出力ファイルのURL ({program_name}): {url} を開きます")
+                webbrowser.open(url)
+                time.sleep(Constants.Time.SLEEP_SECONDS) # 連続オープンを防ぐ
+            return True # URLを開いたのでTrue
         else:
-             logger.warning(f"{program_name} ブロック内にもURLが見つかりませんでした。")
-             return False # 何も開かなかった
+            logger.warning(f"{program_name} ブロック内にもURLが見つかりませんでした。")
+            return False # 何も開かなかった
 
     program_config = config_programs[program_name]
     list_page_url = None
@@ -65,18 +65,18 @@ def open_urls_from_config(config_programs: dict, program_name: str, block_urls: 
             list_page_url = program_config['urls'][0]
             # block_urls に trend_tamago が含まれていたら、trend_tamago の一覧ページにする
             if any("trend_tamago" in detail_url for detail_url in block_urls):
-                 if len(program_config['urls']) > 1:
-                     list_page_url = program_config['urls'][1] # 2番目をトレたま用と仮定
-                     logger.debug("トレたまURLが含まれるため、WBS一覧ページをトレたま用に変更。")
-                 else:
-                      logger.warning("WBS設定にトレたま用URLが見つかりません。デフォルトの一覧ページを開きます。")
+                if len(program_config['urls']) > 1:
+                    list_page_url = program_config['urls'][1] # 2番目をトレたま用と仮定
+                    logger.debug("トレたまURLが含まれるため、WBS一覧ページをトレたま用に変更。")
+                else:
+                    logger.warning("WBS設定にトレたま用URLが見つかりません。デフォルトの一覧ページを開きます。")
         elif 'url' in program_config: # WBS以外 または WBSでurlキーしかない場合
             list_page_url = program_config['url']
         elif 'urls' in program_config and program_config['urls']: # urlキーがなくurlsキーがある場合
-             list_page_url = program_config['urls'][0] # とりあえず最初のURLを使う
+            list_page_url = program_config['urls'][0] # とりあえず最初のURLを使う
     else:
-         logger.error(f"{program_name} の設定データ形式が不正です。")
-         return False # 設定がおかしい
+        logger.error(f"{program_name} の設定データ形式が不正です。")
+        return False # 設定がおかしい
 
     if not list_page_url:
         logger.error(f"{program_name} の一覧ページURLが設定から取得できませんでした。")
@@ -97,8 +97,8 @@ def open_urls_from_config(config_programs: dict, program_name: str, block_urls: 
     for detail_url in block_urls:
         # 一覧ページと同じURLは開かない (重複を避ける)
         if detail_url == list_page_url:
-             logger.debug(f"一覧ページと同じURLのためスキップ: {detail_url}")
-             continue
+            logger.debug(f"一覧ページと同じURLのためスキップ: {detail_url}")
+            continue
         logger.info(f"{program_name} の詳細ページ: {detail_url} を開きます")
         webbrowser.open(detail_url)
         opened_count += 1
@@ -111,49 +111,40 @@ def open_urls_from_config(config_programs: dict, program_name: str, block_urls: 
 
 def process_program_block(block: str, nhk_programs: dict, tvtokyo_programs: dict) -> None:
     """番組ブロックを処理する"""
-    # モジュールレベルの logger を使用
     lines = block.strip().split('\n')
     if not lines:
         logger.debug("空のブロックをスキップします。")
         return
 
     header_line = lines[0].strip()
-    # ● の後のスペースを考慮
-    if not header_line.startswith("● "):
+    if not header_line.startswith("●"):
         logger.warning(f"ヘッダー行の形式が不正です。スキップします: {header_line[:50]}...")
         return
 
-    # 番組名の抽出を改善 (括弧の手前まで)
-    program_name_match = re.match(r"●\s?(.*?)\s?\(", header_line)
+    # 番組名の抽出
+    program_name_match = re.match(r"●(.*?)\s?\(", header_line) # ●直後からマッチ、スペースは任意
     if not program_name_match:
-         # 括弧がない場合（BSスペシャルなど）は ● の後全体を番組名とする
-         program_name_match = re.match(r"●\s?(.*)", header_line)
-         if not program_name_match:
-              logger.error(f"ヘッダーから番組名を抽出できませんでした: {header_line}")
-              return
+        program_name_match = re.match(r"●(.*)", header_line) # 括弧なしの場合
+        if not program_name_match:
+            logger.error(f"ヘッダーから番組名を抽出できませんでした: {header_line}")
+            return
     program_name = program_name_match.group(1).strip()
     logger.info(f"--- ブロック処理開始: {program_name} ---")
 
-
-    # ブロック内のURLを抽出 (extract_urls_from_file と同様のロジック)
+    # URL抽出、設定ファイル照合、URLオープン処理は変更なし
     block_urls = []
-    for line in lines[1:]: # ヘッダー行以外を対象
+    for line in lines[1:]:
         url_matches = re.findall(r'https?://[^\s"\'<>]+', line)
         if url_matches:
             for url in url_matches:
-                 cleaned_url = url.rstrip('。、」)')
-                 block_urls.append(cleaned_url)
-
+                cleaned_url = url.rstrip('。、」)')
+                block_urls.append(cleaned_url)
     logger.debug(f"ブロックから抽出したURL ({len(block_urls)}件): {block_urls}")
 
-    # 設定ファイルと照合してURLを開く
-    # open_urls_from_config が False を返した場合（設定ミスなど）でもループは継続
     open_urls_from_config(nhk_programs, program_name, block_urls) or \
     open_urls_from_config(tvtokyo_programs, program_name, block_urls)
 
     logger.info(f"--- ブロック処理終了: {program_name} ---")
-    # ここでの time.sleep は open_urls_from_config 内で行うため不要
-
 
 def main():
     """メイン関数"""
@@ -181,9 +172,9 @@ def main():
         nhk_programs = parse_programs_config(nhk_config_path) or {} # None の場合は空辞書に
         tvtokyo_programs = parse_programs_config(tvtokyo_config_path) or {} # None の場合は空辞書に
         if not nhk_programs and not tvtokyo_programs:
-             global_logger.warning("NHKとテレビ東京両方の設定ファイル読み込みに失敗、または設定が空です。")
-             # 処理を継続するかどうかは要件による
-             # sys.exit(1)
+            global_logger.warning("NHKとテレビ東京両方の設定ファイル読み込みに失敗、または設定が空です。")
+            # 処理を継続するかどうかは要件による
+            # sys.exit(1)
 
     except Exception as e:
         global_logger.error(f"設定ファイルの読み込み中にエラーが発生しました: {e}", exc_info=True)
@@ -203,13 +194,13 @@ def main():
 
     # プログラムブロックの分割を改善 (空行や先頭の不要なスペースを考慮)
     # content.split("●") だと先頭の要素が空になる場合がある
-    # 正規表現で ● から始まるブロックを抽出する
+    # 正規表現で●から始まるブロックを抽出する
     program_blocks = re.findall(r"(^●.*?)(?=^●|\Z)", content, re.MULTILINE | re.DOTALL)
 
     if not program_blocks:
-         global_logger.warning("出力ファイルに処理対象の番組ブロックが見つかりませんでした。")
-         print("処理対象の番組ブロックが見つかりませんでした。")
-         sys.exit(0) # 正常終了として扱う
+        global_logger.warning("出力ファイルに処理対象の番組ブロックが見つかりませんでした。")
+        print("処理対象の番組ブロックが見つかりませんでした。")
+        sys.exit(0) # 正常終了として扱う
 
     global_logger.info(f"{len(program_blocks)}件の番組ブロックを処理します。")
 
