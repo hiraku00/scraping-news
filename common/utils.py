@@ -147,14 +147,13 @@ class WebDriverManager:
 def parse_programs_config(config_path: str) -> dict | None:
     """
     設定ファイルを読み込んで番組情報を辞書形式で返す。
+    キーは ini ファイルの 'name' の値を使用する。
     """
     config = load_config(config_path)
     programs = {}
-    # モジュールレベルの logger を使用
+    logger = logging.getLogger(__name__)
     broadcaster_type = None
 
-    # ... (関数の中身は変更なし、内部の logger.xxx() はモジュールレベルのloggerを使用) ...
-    # ファイル名から broadcaster_type を自動判別
     if "nhk" in config_path.lower():
         broadcaster_type = "nhk"
     elif "tvtokyo" in config_path.lower():
@@ -164,38 +163,69 @@ def parse_programs_config(config_path: str) -> dict | None:
         return None
 
     for section in config.sections():
-        if section.startswith('program_'):
-            try:
-                program_name = config.get(section, 'name').strip()
+        # settings セクションなどをスキップ
+        if not section.startswith('program_'):
+            continue
+        try:
+            # iniファイルから情報を取得（stripで前後の空白除去）
+            name_in_config = config.get(section, 'name', fallback='').strip()
+            url = config.get(section, 'url', fallback='').strip()
 
-                if broadcaster_type == 'nhk':
-                    url = config.get(section, 'url').strip()
-                    channel = config.get(section, 'channel', fallback="NHK").strip()
-                    programs[program_name] = {"url": url, "channel": channel}
-                elif broadcaster_type == 'tvtokyo':
-                    url = config.get(section, 'url').strip()
-                    time_str = config.get(section, 'time').strip()
-                    name_in_config = config.get(section, 'name').strip() # WBS判定用に保持
+            # name または url が空の場合はスキップ
+            if not name_in_config or not url:
+                logger.warning(f"セクション '{section}' で name または url が空です。スキップします。")
+                continue
 
-                    # WBS の URL を特別扱い (リストとして保持) - 提案3で改善予定
-                    if name_in_config == Constants.Program.WBS_PROGRAM_NAME:
-                        if Constants.Program.WBS_PROGRAM_NAME not in programs:
-                            programs[Constants.Program.WBS_PROGRAM_NAME] = {"urls": [], "time": time_str, "name": Constants.Program.WBS_PROGRAM_NAME}
-                        programs[Constants.Program.WBS_PROGRAM_NAME]["urls"].append(url)
+            dict_key = name_in_config # ★辞書のキーとして使う変数
+
+            if broadcaster_type == 'nhk':
+                channel = config.get(section, 'channel', fallback="NHK").strip()
+                if dict_key not in programs:
+                    program_data = {"url": url, "channel": channel, "name": dict_key} # nameも追加
+                    logger.debug(f"NHK番組設定を追加: キー='{dict_key}', データ={program_data}")
+                    programs[dict_key] = program_data
+                else:
+                    logger.warning(f"NHK番組設定が重複: キー='{dict_key}' (セクション: {section})。スキップ。")
+
+            elif broadcaster_type == 'tvtokyo':
+                time_str = config.get(section, 'time', fallback='').strip()
+                if not time_str:
+                    logger.warning(f"セクション '{section}' で time が空です。スキップします。")
+                    continue
+
+                if dict_key not in programs:
+                    # 新規追加：urlsキーにリストとして格納
+                    program_data = {
+                        "urls": [url],
+                        "time": time_str,
+                        "name": dict_key # nameも追加
+                    }
+                    logger.debug(f"テレ東番組設定を追加: キー='{dict_key}', データ={program_data}")
+                    programs[dict_key] = program_data
+                else:
+                    # 既存キー：urlsリストに追加 (存在チェックも行う)
+                    if 'urls' in programs[dict_key] and isinstance(programs[dict_key]['urls'], list):
+                        if url not in programs[dict_key]['urls']: # 重複追加を防ぐ
+                            programs[dict_key]['urls'].append(url)
+                            logger.debug(f"テレ東番組設定にURL追加: キー='{dict_key}', 追加URL='{url}'")
+                        else:
+                            logger.debug(f"テレ東番組設定のURLは既に存在: キー='{dict_key}', URL='{url}'")
                     else:
-                        # WBS以外はそのまま格納 (提案3で urls キーも考慮するよう変更予定)
-                        programs[program_name] = {"url": url, "time": time_str, "name": program_name}
-                logger.debug(f"{broadcaster_type} 番組設定を解析しました: {program_name}")
+                        logger.warning(f"テレ東番組 '{dict_key}' の設定構造が不正か 'urls' キーがありません。URL '{url}' を追加できません。")
 
-            except configparser.NoOptionError as e:
-                logger.error(f"設定ファイルにエラーがあります: {e}, section: {section}")
-                continue
-            except Exception as e:
-                logger.error(f"{broadcaster_type} 番組設定の解析中にエラーが発生しました: {e}, section: {section}", exc_info=True)
-                continue
+        except configparser.NoOptionError as e:
+            logger.error(f"設定ファイルエラー(必須オプション欠落): {e}, section: {section}")
+            continue
+        except Exception as e:
+            logger.error(f"{broadcaster_type} 番組設定解析中にエラー: {e}, section: {section}", exc_info=True)
+            continue
+
+    # 最後にデバッグ用に生成された辞書全体を出力
+    logger.debug(f"--- {broadcaster_type} 設定解析完了 ---")
+    for key, value in programs.items():
+        logger.debug(f"キー: '{key}', 値: {value}")
     logger.info(f"{broadcaster_type} 番組設定 ({len(programs)}件) を解析しました。")
     return programs
-
 
 # --- extract_time_from_block, sort_blocks_by_time, count_characters, count_tweet_length ---
 # --- to_jst_datetime, to_utc_isoformat, format_date ---

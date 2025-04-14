@@ -42,72 +42,72 @@ def extract_urls_from_file(file_path: str) -> list[str]:
 
 def open_urls_from_config(config_programs: dict, program_name: str, block_urls: list[str]) -> bool:
     """設定ファイルのURL (一覧) とブロック内のURL (詳細) を開く"""
-    # モジュールレベルの logger を使用
+    logger = logging.getLogger(__name__) # モジュールロガー
+
+    # ★キー検索直前のログ★
+    logger.debug(f"設定検索試行: 検索キー='{program_name}', 検索対象辞書キー={list(config_programs.keys())}")
+
     if program_name not in config_programs:
-        logger.warning(f"設定ファイルに {program_name} の情報が見つかりませんでした。出力ファイルのURLのみ開きます。")
-        if block_urls:
-            for url in block_urls:
-                logger.info(f"出力ファイルのURL ({program_name}): {url} を開きます")
-                webbrowser.open(url)
-                time.sleep(Constants.Time.SLEEP_SECONDS) # 連続オープンを防ぐ
-            return True # URLを開いたのでTrue
-        else:
-            logger.warning(f"{program_name} ブロック内にもURLが見つかりませんでした。")
-            return False # 何も開かなかった
+        # logger.warning(f"設定ファイルに '{program_name}' の情報が見つかりませんでした。出力ファイルのURLのみ開きます。")
+        # if block_urls:
+        #     for url in block_urls:
+        #         logger.info(f"出力ファイルのURL ('{program_name}'): {url} を開きます")
+        #         webbrowser.open(url)
+        #         time.sleep(Constants.Time.SLEEP_SECONDS)
+        #     return True
+        # else:
+        #     logger.warning(f"'{program_name}' ブロック内にもURLが見つかりませんでした。")
+        #     return False
+        return False
 
     program_config = config_programs[program_name]
-    list_page_url = None
+    list_page_urls = [] # 一覧ページURLをリストで扱う
 
-    # 設定から一覧ページURLを取得 (WBSとそれ以外、url/urlsキー対応)
+    # 設定から一覧ページURLを取得
     if isinstance(program_config, dict):
-        if program_name == Constants.Program.WBS_PROGRAM_NAME and 'urls' in program_config and program_config['urls']:
-            # WBS: urlsリストの最初のURLを基本の一覧ページとする
-            list_page_url = program_config['urls'][0]
-            # block_urls に trend_tamago が含まれていたら、trend_tamago の一覧ページにする
+        if 'urls' in program_config and isinstance(program_config['urls'], list) and program_config['urls']:
+            list_page_urls = program_config['urls'] # 設定のURLリストをそのまま使う
+        elif 'url' in program_config: # 古い形式（urlキーのみ）へのフォールバック
+            list_page_urls = [program_config['url']]
+    else:
+        logger.error(f"'{program_name}' の設定データ形式が不正です。")
+        return False
+
+    if not list_page_urls:
+        logger.error(f"'{program_name}' の一覧ページURLが設定から取得できませんでした。")
+        # 一覧ページが開けなくても詳細ページは試みる
+    else:
+        # --- 一覧ページを開くロジック ---
+        # WBSの場合、trend_tamagoが含まれていればそちらを優先する
+        url_to_open = list_page_urls[0] # デフォルトは最初のURL
+        if program_name == Constants.Program.WBS_PROGRAM_NAME and len(list_page_urls) > 1:
             if any("trend_tamago" in detail_url for detail_url in block_urls):
-                if len(program_config['urls']) > 1:
-                    list_page_url = program_config['urls'][1] # 2番目をトレたま用と仮定
-                    logger.debug("トレたまURLが含まれるため、WBS一覧ページをトレたま用に変更。")
-                else:
-                    logger.warning("WBS設定にトレたま用URLが見つかりません。デフォルトの一覧ページを開きます。")
-        elif 'url' in program_config: # WBS以外 または WBSでurlキーしかない場合
-            list_page_url = program_config['url']
-        elif 'urls' in program_config and program_config['urls']: # urlキーがなくurlsキーがある場合
-            list_page_url = program_config['urls'][0] # とりあえず最初のURLを使う
-    else:
-        logger.error(f"{program_name} の設定データ形式が不正です。")
-        return False # 設定がおかしい
+                # trend_tamago らしきURLがあれば2番目を開く (iniでの順序依存)
+                url_to_open = list_page_urls[1]
+                logger.debug("トレたまURLが含まれるため、WBS一覧ページを2番目のURLに変更。")
 
-    if not list_page_url:
-        logger.error(f"{program_name} の一覧ページURLが設定から取得できませんでした。")
-        # 一覧ページが開けなくても、ブロック内のURLを開く試みは続ける
-        # return False
-    else:
-        # 一覧ページを開く
-        logger.info(f"{program_name} の一覧ページ: {list_page_url} を開きます")
-        webbrowser.open(list_page_url)
-        time.sleep(Constants.Time.SLEEP_SECONDS) # 連続オープンを防ぐ
+        logger.info(f"'{program_name}' の一覧ページ: {url_to_open} を開きます")
+        webbrowser.open(url_to_open)
 
-    # 詳細ページ（ブロック内のURL）を開く
+    # --- 詳細ページ（ブロック内のURL）を開くロジック ---
     if not block_urls:
-        logger.info(f"{program_name} ブロック内に開くべき詳細URLが見つかりませんでした。")
+        logger.info(f"'{program_name}' ブロック内に開くべき詳細URLが見つかりませんでした。")
         return True # 一覧ページを開けた（または試みた）のでTrue
 
     opened_count = 0
     for detail_url in block_urls:
-        # 一覧ページと同じURLは開かない (重複を避ける)
-        if detail_url == list_page_url:
-            logger.debug(f"一覧ページと同じURLのためスキップ: {detail_url}")
+        # 開いた一覧ページURLと同じ詳細URLはスキップ
+        if detail_url == url_to_open: # url_to_openと比較
+            logger.debug(f"開いた一覧ページと同じURLのためスキップ: {detail_url}")
             continue
-        logger.info(f"{program_name} の詳細ページ: {detail_url} を開きます")
+        logger.info(f"'{program_name}' の詳細ページ: {detail_url} を開きます")
         webbrowser.open(detail_url)
         opened_count += 1
-        # WBSの場合は少し長めに待つなど調整可能
         sleep_time = Constants.Time.SLEEP_SECONDS * 1.5 if program_name == Constants.Program.WBS_PROGRAM_NAME else Constants.Time.SLEEP_SECONDS
         time.sleep(sleep_time)
 
-    logger.info(f"{program_name}: 詳細ページを {opened_count} 件開きました。")
-    return True # 処理を実行したのでTrue
+    logger.info(f"'{program_name}': 詳細ページを {opened_count} 件開きました。")
+    return True
 
 def process_program_block(block: str, nhk_programs: dict, tvtokyo_programs: dict) -> None:
     """番組ブロックを処理する"""
@@ -130,6 +130,8 @@ def process_program_block(block: str, nhk_programs: dict, tvtokyo_programs: dict
             return
     program_name = program_name_match.group(1).strip()
     logger.info(f"--- ブロック処理開始: {program_name} ---")
+    # ★抽出したキーを明確にログ出力★
+    logger.debug(f"抽出された番組名 (キー検索用): >>>'{program_name}'<<<")
 
     # URL抽出、設定ファイル照合、URLオープン処理は変更なし
     block_urls = []
@@ -141,8 +143,18 @@ def process_program_block(block: str, nhk_programs: dict, tvtokyo_programs: dict
                 block_urls.append(cleaned_url)
     logger.debug(f"ブロックから抽出したURL ({len(block_urls)}件): {block_urls}")
 
-    open_urls_from_config(nhk_programs, program_name, block_urls) or \
-    open_urls_from_config(tvtokyo_programs, program_name, block_urls)
+    # ★渡す辞書の内容もログ出力（キーのみ）★
+    logger.debug(f"NHK設定辞書のキー: {list(nhk_programs.keys())}")
+    logger.debug(f"テレ東設定辞書のキー: {list(tvtokyo_programs.keys())}")
+
+    # 設定ファイルと照合してURLを開く
+    processed_nhk = open_urls_from_config(nhk_programs, program_name, block_urls)
+    processed_tvtokyo = False
+    if not processed_nhk: # NHKで見つからなかった場合のみテレ東を試す
+        processed_tvtokyo = open_urls_from_config(tvtokyo_programs, program_name, block_urls)
+
+    if not processed_nhk and not processed_tvtokyo:
+        logger.warning(f"'{program_name}' はNHK, テレ東のどちらの設定にも見つかりませんでした。")
 
     logger.info(f"--- ブロック処理終了: {program_name} ---")
 
@@ -208,8 +220,6 @@ def main():
     for block in program_blocks:
         # process_program_block は内部でモジュールロガーを使用
         process_program_block(block.strip(), nhk_programs, tvtokyo_programs)
-        # ブロック間の待機（任意）
-        # time.sleep(1)
 
     global_logger.info("=== open-url 処理終了 ===")
 
