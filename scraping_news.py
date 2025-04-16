@@ -10,6 +10,7 @@ import multiprocessing
 import re
 from selenium.common.exceptions import TimeoutException, NoSuchElementException, StaleElementReferenceException
 import logging
+from typing import Optional, Union, List, TypeAlias, Tuple
 from common.base_scraper import BaseScraper
 from common.episode_processor import EpisodeProcessor
 from common.utils import (
@@ -19,26 +20,54 @@ from common.utils import (
 )
 from common.CustomExpectedConditions import CustomExpectedConditions
 
+# --- 型エイリアス定義 ---
+# Scraper が返す型
+ScrapeResultData = Optional[Union[str, List[str]]]
+ScrapeResult = Tuple[str, ScrapeResultData] # (status, data_or_message)
+# fetch_program_info が返す型
+FetchResult: TypeAlias = Optional[Tuple[str, str, ScrapeResultData]] # (program_name, status, data_or_message)
+
 class NHKScraper(BaseScraper):
     """NHKの番組情報をスクレイピングするクラス"""
     def __init__(self, config):
         super().__init__(config)
         self.episode_processor = EpisodeProcessor(self.logger)
 
-    @BaseScraper.log_operation("番組情報の取得")
-    def get_program_info(self, program_name: str, target_date: str) -> str | None:
+    @BaseScraper.log_operation("番組情報の取得") # 修正したデコレータを使用
+    def get_program_info(self, program_name: str, target_date: str) -> ScrapeResult: # 戻り値の型を ScrapeResult に
         """指定された番組の情報を取得する"""
         if not self.validate_config(program_name):
-            return None
+            return "failure", f"設定情報が見つかりません" # ステータスとメッセージを返す
 
         program_info = self.config.get(program_name)
-        def scrape_operation(driver):
+
+        def scrape_operation(driver) -> ScrapeResult:
             episode_url = self._extract_nhk_episode_info(driver, target_date, program_name)
             if episode_url:
-                return self._get_nhk_formatted_episode_info(driver, program_name, episode_url, program_info["channel"])
-            return None
+                # _get_nhk_formatted_episode_info は成功すれば文字列、失敗すれば None を返す想定
+                formatted_info = self._get_nhk_formatted_episode_info(driver, program_name, episode_url, program_info.get("channel", "不明"))
+                if formatted_info:
+                    return "success", formatted_info # 成功タプル
+                else:
+                    # 整形失敗
+                    return "failure", f"詳細情報の整形/取得に失敗" # 失敗タプル
+            else:
+                # エピソードが見つからない
+                return "failure", f"対象エピソードが見つかりません" # 失敗タプル
 
-        return self.execute_with_driver(scrape_operation)
+        # execute_with_driver は成功すれば scrape_operation の結果 (ScrapeResult)、失敗すれば None を返す
+        result = self.execute_with_driver(scrape_operation)
+
+        if result is None:
+            # WebDriver 操作中のエラーなど
+            return "failure", f"WebDriverエラーまたは内部エラー発生"
+        elif isinstance(result, tuple) and len(result) == 2:
+            # scrape_operation が正常に ScrapeResult を返した場合
+            return result # そのまま返す
+        else:
+            # 予期しない戻り値
+            self.logger.error(f"execute_with_driver が予期しない値を返しました: {result}")
+            return "failure", f"予期しない内部エラー"
 
     @BaseScraper.handle_selenium_error
     def _extract_nhk_episode_info(self, driver, target_date: str, program_title: str) -> str | None:
@@ -173,101 +202,103 @@ class TVTokyoScraper(BaseScraper):
         super().__init__(config)
 
     @BaseScraper.log_operation("番組情報の取得")
-    ### 修正 ###: 戻り値の型アノテーションを list[str] | None に変更
-    def get_program_info(self, program_name: str, target_date: str) -> list[str] | None:
-        """指定された番組の情報を取得する"""
+    def get_program_info(self, program_name: str, target_date: str) -> ScrapeResult:
         if not self.validate_config(program_name):
-            return None
+            return "failure", f"設定情報が見つかりません"
 
         program_config = self.config.get(program_name)
-        # BaseScraper に execute_with_driver がある想定だが、提供コードにはないので
-        # WebDriverManager を直接使う形で修正 (もし execute_with_driver があればそちらを使うべき)
-        with WebDriverManager() as driver:
-            try:
+        # --- デバッグログ追加 ---
+        self.logger.debug(f"[{program_name}] 設定内容: {program_config}") # 設定内容全体をログ出力
+
+        try:
+            # WebDriverManagerを使う場合 (execute_with_driverを使わない場合)
+            with WebDriverManager() as driver:
                 formatted_date = format_date(target_date)
                 weekday = datetime.strptime(target_date, '%Y%m%d').weekday()
-                # 番組時間は共通のはずなのでここで決定
-                program_time = format_program_time(program_config['name'], weekday, program_config['time'])
-                self.logger.info(f"検索開始: {program_name}")
+                program_time = format_program_time(program_config.get('name'), weekday, program_config.get('time'))
 
                 target_urls = []
                 # --- URL取得ロジック ---
                 if "urls" in program_config:
                     urls_value = program_config["urls"]
+                    # --- デバッグログ追加 ---
+                    self.logger.debug(f"[{program_name}] 'urls' キー検出: {urls_value} (型: {type(urls_value)})")
                     if isinstance(urls_value, str):
                         target_urls = [url.strip() for url in urls_value.split(',') if url.strip()]
-                    elif isinstance(urls_value, list):
-                        target_urls = [str(url).strip() for url in urls_value if str(url).strip()]
+                        # --- デバッグログ追加 ---
+                        self.logger.debug(f"[{program_name}] 文字列を分割後のURLリスト: {target_urls}")
+                    # --- ↓↓↓ ここから2行のコメントアウト (#) を削除 ↓↓↓ ---
+                    elif isinstance(urls_value, list): # ← ここの '#' を削除
+                        target_urls = [str(url).strip() for url in urls_value if str(url).strip()] # ← ここの '#' を削除
+                        self.logger.debug(f"[{program_name}] リスト処理後のURLリスト: {target_urls}") # ← ここの '#' を削除 (任意)
+                    # --- ↑↑↑ ここまで修正 ↑↑↑ ---
                     else:
-                        self.logger.warning(f"{program_name} の 'urls' キーの値が予期しない型 ({type(urls_value)}) です。'url' キーを試します。")
+                        self.logger.warning(f"[{program_name}] 'urls' キーの値が予期しない型 ({type(urls_value)})。'url' キーを試します。")
                         if "url" in program_config:
-                            target_urls = [program_config["url"]]
-                        else:
-                            self.logger.error(f"{program_name} の設定に有効なURL ('urls' または 'url') が見つかりません。")
-                            return None
-                    if not target_urls:
-                        self.logger.warning(f"{program_name} の 'urls' キーから有効なURLを取得できませんでした。'url' キーを試します。")
-                        if "url" in program_config:
-                            target_urls = [program_config["url"]]
-                        else:
-                            self.logger.error(f"{program_name} の設定に有効なURL ('urls' または 'url') が見つかりません。")
-                            return None
+                            url_value = program_config["url"]
+                            if isinstance(url_value, str) and url_value.strip():
+                                target_urls = [url_value.strip()]
+                                self.logger.debug(f"[{program_name}] 'url' キーをフォールバックで使用: {target_urls}")
                 elif "url" in program_config:
-                    target_urls = [program_config["url"]]
+                    url_value = program_config["url"]
+                    # --- デバッグログ追加 ---
+                    self.logger.debug(f"[{program_name}] 'url' キー検出: {url_value}")
+                    if isinstance(url_value, str) and url_value.strip():
+                        target_urls = [url_value.strip()]
+                    else:
+                        self.logger.warning(f"[{program_name}] 'url' キーの値が無効です: {url_value}")
                 else:
-                    self.logger.error(f"{program_name} の設定に 'url' または 'urls' キーが見つかりません。")
-                    return None
+                    self.logger.error(f"[{program_name}] 設定に 'url' または 'urls' キーが見つかりません。")
+                    return "failure", f"設定に 'url' または 'urls' キーが見つかりません"
+
+                # --- デバッグログ追加 ---
+                self.logger.debug(f"[{program_name}] 最終的な target_urls: {target_urls}")
 
                 if not target_urls:
-                    self.logger.error(f"{program_name} の処理で有効な target_urls が設定されませんでした。")
-                    return None
+                    self.logger.error(f"[{program_name}] 処理の結果、有効な target_urls が設定されませんでした。")
+                    return "failure", f"有効なURLが設定されていません" # ← ここでエラーが発生していた
                 # --- URL取得ロジックここまで ---
 
+                # _extract_tvtokyo_episode_urls は成功すればリスト、失敗すれば空リストを返す想定
                 episode_urls = self._extract_tvtokyo_episode_urls(driver, target_urls, formatted_date, program_name)
 
                 if not episode_urls:
-                    self.logger.warning(f"{program_name} の放送が見つかりませんでした。 (日付: {formatted_date}, URL: {target_urls})")
-                    return None
+                    # 放送が見つからない場合は failure
+                    return "failure", f"放送が見つかりませんでした (日付: {formatted_date})"
 
-                all_formatted_outputs = [] # 結果を格納するリスト
+                # --- 詳細取得とフォーマット ---
+                all_formatted_outputs = []
                 episode_details = []
-                # まず全ての詳細を取得試行
                 for url in episode_urls:
+                    # _fetch_tvtokyo_episode_details は (title, url) または (None, None) などを返す
                     detail = self._fetch_tvtokyo_episode_details(driver, url, program_name)
-                    if detail: # (title, url) のタプル、または None
-                        episode_details.append(detail)
+                    if detail and detail[0] and detail[1]: # title と url が両方ある場合のみ
+                        episode_details.append(detail) # 有効なものだけ追加
 
-                # 有効な詳細情報のみを抽出 (title と url が両方存在する)
-                valid_details = [(title, url) for title, url in episode_details if title and url]
+                if not episode_details: # 有効な詳細が一つもない場合
+                    return "failure", f"有効なエピソード詳細が見つかりませんでした"
 
-                if not valid_details:
-                    self.logger.warning(f"{program_name} の有効なエピソード詳細が見つかりませんでした。")
-                    return None # 有効なものが一つもなければ None
-
-                # 有効な各エピソードについて出力をフォーマット
-                for episode_title, episode_detail_url in valid_details:
+                for episode_title, episode_detail_url in episode_details:
                     formatted_output = self._format_program_output(
-                        program_title=program_config['name'], # 番組名は共通
-                        program_time=program_time,         # 番組時間も共通
-                        episode_title=episode_title,       # 各エピソードのタイトル
-                        url_to_display=episode_detail_url  # 各エピソードのURL
+                        program_title=program_config['name'],
+                        program_time=program_time,
+                        episode_title=episode_title,
+                        url_to_display=episode_detail_url
                     )
-                    if formatted_output: # フォーマット成功時のみ追加
+                    if formatted_output:
                         all_formatted_outputs.append(formatted_output)
-                        self.logger.info(f"{program_name} のエピソード情報をフォーマットしました: {episode_title}")
 
-                if not all_formatted_outputs:
-                    # ループは回ったが、何らかの理由でフォーマット結果が空の場合
-                    self.logger.warning(f"{program_name} について有効なフォーマット済み出力が得られませんでした。")
-                    return None
+                if not all_formatted_outputs: # フォーマット結果が空の場合
+                    return "failure", f"有効なフォーマット済み出力が得られませんでした"
 
-                # ログメッセージを少し変更 (件数を表示)
-                self.logger.info(f"{program_name} の詳細情報 ({len(all_formatted_outputs)} 件) を取得しました")
-                return all_formatted_outputs # フォーマットされた文字列のリストを返す
+                # 成功
+                # self.logger.info(f"{program_name} の詳細情報 ({len(all_formatted_outputs)} 件) を取得しました") # 完了ログはデコレータに任せる (DEBUGレベルで出力)
+                return "success", all_formatted_outputs
 
-            except Exception as e:
-                self.logger.error(f"番組情報取得中にエラー: {e} - {program_name}", exc_info=True)
-                return None
+        except Exception as e:
+            # WebDriverManager の外、または予期せぬエラー
+            self.logger.error(f"番組情報取得中にエラー: {e} - {program_name}", exc_info=True)
+            return "failure", f"処理中にエラー: {e}"
 
     def _extract_tvtokyo_episode_urls(self, driver, target_urls: list[str], formatted_date: str, program_name: str) -> list[str]:
         """
@@ -377,35 +408,34 @@ class TVTokyoScraper(BaseScraper):
 # モジュールレベルのロガーを取得
 logger = logging.getLogger(__name__)
 
-def fetch_program_info(args: tuple[str, str, dict, str]) -> str | list[str] | None:
-    """並列処理用のラッパー関数"""
+# 戻り値の型アノテーションを修正: FetchResult を使用
+def fetch_program_info(args: tuple[str, str, dict, str]) -> FetchResult: # 戻り値の型を FetchResult に
+    """並列処理用のラッパー関数。番組名、ステータス、結果/メッセージのタプル、またはNoneを返す"""
     task_type, program_name, programs, target_date = args
-    # ここで setup_logger は呼ばない。モジュールレベルの logger を使う。
+    process_logger = logging.getLogger(f"{__name__}.{program_name}")
 
     try:
-        result = None # 初期化
         scraper = None
+        status = "failure" # デフォルト
+        data_or_message = "不明なエラー" # デフォルト
+
         if task_type == 'nhk':
             scraper = NHKScraper(programs)
-            result = scraper.get_program_info(program_name, target_date)
+            status, data_or_message = scraper.get_program_info(program_name, target_date)
         elif task_type == 'tvtokyo':
             scraper = TVTokyoScraper(programs)
-            result = scraper.get_program_info(program_name, target_date)
+            status, data_or_message = scraper.get_program_info(program_name, target_date)
         else:
-            logger.error(f"不明なタスクタイプです: {task_type}")
-            return None
+            process_logger.error(f"不明なタスクタイプです: {task_type}")
+            return program_name, "failure", f"不明なタスクタイプ: {task_type}" # タプルで返す
 
-        # --- ログ出力は BaseScraper のデコレータに任せる方針でも良い ---
-        # scraper.get_program_info が None を返した場合のログはデコレータ側で出力される想定
-        # if result is None:
-        #     logger.warning(f"{program_name} の情報の取得に失敗しました。")
-
-        return result
+        # scraper.get_program_info の結果をタプルで返す
+        return program_name, status, data_or_message
 
     except Exception as e:
-        # scraper 内でもエラーログは出るはずだが、プロセスレベルでのエラーも記録
-        logger.error(f"{program_name} の情報取得プロセスで予期せぬエラー: {e}", exc_info=True)
-        return None
+        process_logger.error(f"{program_name} の情報取得プロセスで予期せぬエラー: {e}", exc_info=True)
+        # プロセスレベルのエラーも failure タプルで返す
+        return program_name, "failure", f"プロセスエラー: {e}"
 
 def get_elapsed_time(start_time: float) -> float:
     """経過時間を計算する"""
@@ -489,15 +519,9 @@ def process_and_sort_results(results: list[str | list[str] | None], start_time: 
 def main():
     """メイン関数"""
     # --- Logger Setup ---
-    # main 関数の最初で一度だけ呼び出す
-    # これにより、このスクリプト全体（インポートされたモジュール含む）の基本的なログ設定が行われる
-    global_logger = setup_logger(level=logging.INFO) # INFOレベル以上に設定
+    global_logger = setup_logger(level=logging.INFO)
+    # global_logger = setup_logger(level=logging.DEBUG)
     # ---------------------
-
-    if len(sys.argv) != 2:
-        global_logger.error("日付引数がありません。")
-        print("日付を引数で指定してください (例: python script.py 20250124)")
-        sys.exit(1)
 
     target_date = sys.argv[1]
     output_dir = "output"
@@ -509,7 +533,6 @@ def main():
     global_logger.info(f"対象日付: {target_date}")
 
     try:
-        # parse_programs_config は utils の関数 (内部でモジュールロガー使用)
         nhk_programs = parse_programs_config('ini/nhk_config.ini')
         tvtokyo_programs = parse_programs_config('ini/tvtokyo_config.ini')
 
@@ -517,39 +540,76 @@ def main():
             global_logger.error("設定ファイルの読み込みに失敗したか、設定が空です。処理を終了します。")
             sys.exit(1)
 
-        # process_scraping は変更なし
         tasks = process_scraping(target_date, nhk_programs or {}, tvtokyo_programs or {})
         total_tasks = len(tasks)
         processed_tasks = 0
-        results = []
+        results = [] # スクレイピング結果のみを格納
 
         if total_tasks == 0:
             global_logger.warning("実行するタスクがありません。")
         else:
             global_logger.info(f"並列処理を開始します ({total_tasks} タスク)")
-            # multiprocessing.Pool を使う場合、サブプロセスでもログ設定が引き継がれるか確認が必要
-            # サブプロセス側 (fetch_program_info) でも logging.getLogger(__name__) で取得すれば
-            # 基本的にはルートロガーの設定が使われるはず
             with multiprocessing.Pool() as pool:
-                for result_item in pool.imap_unordered(fetch_program_info, tasks):
-                    if result_item is not None:
-                        results.append(result_item)
-
+                # imap_unordered で FetchResult を受け取る
+                for fetch_result in pool.imap_unordered(fetch_program_info, tasks):
                     processed_tasks += 1
                     elapsed_time = get_elapsed_time(start_time)
-                    print(f"\r進捗: {processed_tasks}/{total_tasks}（経過時間：{elapsed_time:.0f}秒）", end="", flush=True)
-            print() # 進捗表示の後に改行
+                    progress_message = "" # 進捗行に表示するメッセージ
+
+                    # fetch_result が None でないことを確認 (通常はタプルが返るはず)
+                    if fetch_result is not None:
+                        program_name, status, data_or_message = fetch_result
+
+                        if status == "success":
+                            # 成功した場合
+                            result_count_str = ""
+                            if isinstance(data_or_message, list):
+                                result_count_str = f" ({len(data_or_message)}件)"
+                            elif isinstance(data_or_message, str) and data_or_message:
+                                result_count_str = " (1件)"
+
+                            progress_message = f"{program_name} 完了{result_count_str}"
+
+                            # 成功データを results に追加
+                            if data_or_message is not None:
+                                if isinstance(data_or_message, list):
+                                    results.extend(res for res in data_or_message if isinstance(res, str))
+                                elif isinstance(data_or_message, str):
+                                    results.append(data_or_message)
+
+                        elif status == "failure":
+                            # 失敗した場合、理由メッセージを表示に含める
+                            failure_reason = data_or_message if isinstance(data_or_message, str) else "詳細不明"
+                            # 長すぎるメッセージは切り詰めるなどしても良い
+                            max_len = 60
+                            if len(failure_reason) > max_len:
+                                failure_reason = failure_reason[:max_len] + "..."
+                            progress_message = f"{program_name} 失敗: {failure_reason}"
+                        else:
+                            # 予期しないステータス
+                            progress_message = f"{program_name} 未知の状態 ({status})"
+                            global_logger.warning(f"不明なステータスを受け取りました: {fetch_result}")
+
+                    else:
+                        # fetch_program_info が None を返した場合 (基本的にはないはず)
+                        progress_message = "不明なタスクでエラー発生"
+                        global_logger.error("fetch_program_info が None を返しました")
+
+                    # 進捗表示 (1行にまとめる)
+                    print(f"進捗: {processed_tasks}/{total_tasks} ({progress_message}) （経過時間：{elapsed_time:.0f}秒）")
+
             global_logger.info("並列処理が完了しました。")
 
-        # 結果の集計とソート
+        # --- 結果の集計とファイル書き込み ---
         if not results:
             global_logger.warning("有効な番組情報が一件も見つかりませんでした。")
             print("有効な番組情報が見つからなかったため、ファイルは作成されませんでした。")
         else:
-            # process_and_sort_results, write_results_to_file は内部でモジュールロガーを使用
+            # process_and_sort_results は成功データ (results) のみを処理する
             sorted_blocks = process_and_sort_results(results, start_time)
             write_results_to_file(sorted_blocks, output_file_path)
             print(f"\n結果を {output_file_path} に出力しました。（経過時間：{get_elapsed_time(start_time):.0f}秒）")
+
 
     except Exception as e:
         global_logger.error(f"メイン処理で予期せぬエラーが発生しました: {e}", exc_info=True)

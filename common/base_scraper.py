@@ -1,11 +1,15 @@
 from abc import ABC, abstractmethod
-import logging # logging をインポート
+import logging
 import functools
-from typing import TypeVar, Callable, Any
-from selenium.common.exceptions import TimeoutException, NoSuchElementException, StaleElementReferenceException, WebDriverException # WebDriverException 追加
-from common.utils import WebDriverManager # WebDriverManager をインポート
+from typing import TypeVar, Callable, Any, Optional, Union, List, Tuple
+import time
+from selenium.common.exceptions import TimeoutException, NoSuchElementException, StaleElementReferenceException, WebDriverException
+from common.utils import WebDriverManager
 
 T = TypeVar('T')
+
+ScrapeResultData = Optional[Union[str, List[str]]]
+ScrapeResult = Tuple[str, ScrapeResultData] # (status, data_or_message)
 
 class BaseScraper(ABC):
     """スクレイパーの抽象基底クラス"""
@@ -82,33 +86,42 @@ class BaseScraper(ABC):
         return wrapper
 
     @staticmethod
-    def log_operation(operation_name: str) -> Callable[[Callable[..., T]], Callable[..., T]]:
-        """操作のログを記録するデコレータ"""
-        def decorator(func: Callable[..., T]) -> Callable[..., T]:
+    def log_operation(operation_name: str) -> Callable[[Callable[..., ScrapeResult]], Callable[..., ScrapeResult]]:
+        """
+        操作の開始ログを記録し、結果タプル (status, data_or_message) を返すデコレータ。
+        完了/失敗ログは出力しない。
+        """
+        def decorator(func: Callable[..., ScrapeResult]) -> Callable[..., ScrapeResult]:
             @functools.wraps(func)
-            def wrapper(self, *args, **kwargs) -> T: # self を受け取る
-                logger = getattr(self, 'logger', logging.getLogger(func.__module__)) # selfからloggerを取得、なければモジュールロガー
-                # args を含む operation_name をログに出力 (例: 番組名など)
+            def wrapper(self, *args, **kwargs) -> ScrapeResult: # 戻り値の型を ScrapeResult に
+                logger = getattr(self, 'logger', logging.getLogger(func.__module__))
                 log_args = args[0] if args else "" # 最初の引数をログに出力する例
                 logger.info(f"[{operation_name}] 開始: {log_args}")
-                import time # time をインポート
                 start_time = time.time()
-                result = func(self, *args, **kwargs)
-                end_time = time.time()
-                duration = end_time - start_time
-                if result is not None:
-                    count_str = f" ({len(result)}件)" if isinstance(result, list) else ""
-                    logger.info(f"[{operation_name}] 完了{count_str}: {log_args} ({duration:.2f}秒)")
-                else:
-                    logger.warning(f"[{operation_name}] 失敗または結果なし: {log_args} ({duration:.2f}秒)")
-                return result
+                try:
+                    # 元の関数を実行し、結果タプル (status, data_or_msg) を受け取る
+                    status, data_or_msg = func(self, *args, **kwargs)
+                    end_time = time.time()
+                    duration = end_time - start_time
+                    # 処理時間を DEBUG レベルでログ出力（任意）
+                    logger.debug(f"[{operation_name}] 処理完了: {log_args} ({duration:.2f}秒) - Status: {status}")
+                    # 結果タプルをそのまま返す
+                    return status, data_or_msg
+                except Exception as e:
+                    # get_program_info 内でキャッチされずにデコレータまで来た例外
+                    logger.error(f"[{operation_name}] 実行中に予期せぬエラー: {log_args} - {e}", exc_info=True)
+                    # エラー発生時は failure タプルを返す
+                    return "failure", f"予期せぬエラー: {e}"
             return wrapper
         return decorator
     # --- デコレータここまで ---
 
     @abstractmethod
-    def get_program_info(self, program_name: str, target_date: str) -> str | list[str] | None: # 戻り値を修正
-        """指定された番組の情報を取得する"""
+    def get_program_info(self, program_name: str, target_date: str) -> ScrapeResult:
+        """
+        指定された番組の情報を取得する。
+        成功時は ("success", 結果データ) を、失敗時は ("failure", 理由メッセージ) を返す。
+        """
         pass
 
     def validate_config(self, program_name: str) -> bool:
