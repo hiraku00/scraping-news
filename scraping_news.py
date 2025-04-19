@@ -131,30 +131,43 @@ class NHKScraper(BaseScraper):
             return None
 
     def _process_eyecatch_or_iframe(self, driver, program_title: str, episode_url: str, channel: str, episode_title: str, nhk_plus_url: str | None) -> str | None:
-        """eyecatch画像またはiframeからURLを取得して整形する"""
+        """eyecatch画像またはiframeからURLを取得し、整形された出力文字列を返す"""
         final_url = None
+
+        # 1. eyecatch 画像から URL を試行
         try:
             final_url = self._process_eyecatch_image(driver, program_title, episode_url)
+            if final_url:
+                self.logger.debug(f"eyecatch画像からURL取得成功: {final_url} - {program_title}")
         except Exception as eyecatch_e:
-            self.logger.debug(f"eyecatch画像処理失敗: {eyecatch_e} - {program_title}, {episode_url}") # debug レベルでログ出力
+            self.logger.debug(f"eyecatch画像処理失敗: {eyecatch_e} - {program_title}, {episode_url}. iframeを試行します。")
+
+        # 2. eyecatch が失敗した場合、iframe から URL を試行
+        if not final_url:
             try:
                 final_url = self._process_iframe_url(driver, program_title, episode_url)
+                if final_url:
+                    self.logger.debug(f"iframeからURL取得成功: {final_url} - {program_title}")
             except Exception as iframe_e:
                 self.logger.debug(f"iframe URL取得失敗 (正常な状態の可能性あり): {program_title} - {str(iframe_e)}")
-                return None # eyecatch, iframe どちらの処理も失敗
+                # final_url は None のまま
 
-        # final_url が None でない場合のみ処理を続ける
-        if final_url: # eyecatch または iframe からURLを取得できた場合
+        # どちらかの方法で final_url が取得できた場合
+        if final_url:
             url_to_use = nhk_plus_url if nhk_plus_url else final_url
+            program_time = extract_program_time_info(driver, program_title, episode_url, channel) # ここで時間取得
             formatted_output = self._format_program_output(
                 program_title=program_title,
-                program_time=extract_program_time_info(driver, program_title, episode_url, channel),
+                program_time=program_time,
                 episode_title=episode_title,
                 url_to_display=url_to_use
             )
             self.logger.info(f"{program_title} の詳細情報を取得しました")
             return formatted_output
-        return None # eyecatch, iframe どちらからもURLを取得できなかった場合
+
+        # どちらの方法でも URL を取得できなかった場合
+        self.logger.debug(f"eyecatch/iframe どちらからも有効なURLを取得できませんでした - {program_title}, {episode_url}")
+        return None
 
     def _process_eyecatch_image(self, driver, program_title: str, episode_url: str) -> str | None:
         """eyecatch画像からURLを取得する"""
@@ -218,46 +231,32 @@ class TVTokyoScraper(BaseScraper):
                 program_time = format_program_time(program_config.get('name'), weekday, program_config.get('time'))
 
                 target_urls = []
-                # --- URL取得ロジック ---
-                if "urls" in program_config:
-                    urls_value = program_config["urls"]
-                    # --- デバッグログ追加 ---
-                    self.logger.debug(f"[{program_name}] 'urls' キー検出: {urls_value} (型: {type(urls_value)})")
+                urls_value = program_config.get("urls") # .get() でキー存在確認と取得を同時に行う
+                url_value = program_config.get("url")   # 同上
+
+                if urls_value:
+                    self.logger.debug(f"[{program_name}] 'urls' キーを処理: {urls_value} (型: {type(urls_value)})")
                     if isinstance(urls_value, str):
                         target_urls = [url.strip() for url in urls_value.split(',') if url.strip()]
-                        # --- デバッグログ追加 ---
-                        self.logger.debug(f"[{program_name}] 文字列を分割後のURLリスト: {target_urls}")
-                    # --- ↓↓↓ ここから2行のコメントアウト (#) を削除 ↓↓↓ ---
-                    elif isinstance(urls_value, list): # ← ここの '#' を削除
-                        target_urls = [str(url).strip() for url in urls_value if str(url).strip()] # ← ここの '#' を削除
-                        self.logger.debug(f"[{program_name}] リスト処理後のURLリスト: {target_urls}") # ← ここの '#' を削除 (任意)
-                    # --- ↑↑↑ ここまで修正 ↑↑↑ ---
+                    elif isinstance(urls_value, list):
+                        target_urls = [str(url).strip() for url in urls_value if str(url).strip()]
                     else:
-                        self.logger.warning(f"[{program_name}] 'urls' キーの値が予期しない型 ({type(urls_value)})。'url' キーを試します。")
-                        if "url" in program_config:
-                            url_value = program_config["url"]
-                            if isinstance(url_value, str) and url_value.strip():
-                                target_urls = [url_value.strip()]
-                                self.logger.debug(f"[{program_name}] 'url' キーをフォールバックで使用: {target_urls}")
-                elif "url" in program_config:
-                    url_value = program_config["url"]
-                    # --- デバッグログ追加 ---
-                    self.logger.debug(f"[{program_name}] 'url' キー検出: {url_value}")
+                        self.logger.warning(f"[{program_name}] 'urls' の型が不正 ({type(urls_value)})。'url' キーを試行します。")
+                        # 'urls' が不正でも 'url' の処理に進む
+
+                # 'urls' がない、または処理結果が空、または型が不正だった場合、'url' を試行
+                if not target_urls and url_value:
+                    self.logger.debug(f"[{program_name}] 'url' キーを処理: {url_value} (型: {type(url_value)})")
                     if isinstance(url_value, str) and url_value.strip():
                         target_urls = [url_value.strip()]
                     else:
                         self.logger.warning(f"[{program_name}] 'url' キーの値が無効です: {url_value}")
-                else:
-                    self.logger.error(f"[{program_name}] 設定に 'url' または 'urls' キーが見つかりません。")
-                    return "failure", f"設定に 'url' または 'urls' キーが見つかりません"
 
-                # --- デバッグログ追加 ---
                 self.logger.debug(f"[{program_name}] 最終的な target_urls: {target_urls}")
 
                 if not target_urls:
-                    self.logger.error(f"[{program_name}] 処理の結果、有効な target_urls が設定されませんでした。")
-                    return "failure", f"有効なURLが設定されていません" # ← ここでエラーが発生していた
-                # --- URL取得ロジックここまで ---
+                    self.logger.error(f"[{program_name}] 設定から有効なURLが見つかりませんでした。")
+                    return "failure", f"有効なURLが設定されていません"
 
                 # _extract_tvtokyo_episode_urls は成功すればリスト、失敗すれば空リストを返す想定
                 episode_urls = self._extract_tvtokyo_episode_urls(driver, target_urls, formatted_date, program_name)
@@ -516,6 +515,41 @@ def process_and_sort_results(results: list[str | list[str] | None], start_time: 
     logger.info(f"番組ブロックのソート完了（経過時間：{get_elapsed_time(start_time):.0f}秒）")
     return sorted_blocks
 
+# --- ヘルパー関数定義 ---
+def _process_fetch_result(fetch_result: FetchResult, results_list: list[str], logger: logging.Logger) -> str:
+    """
+    fetch_program_info の結果を処理し、進捗メッセージを生成する。
+    成功した場合は results_list にデータを追加する。
+    """
+    if fetch_result is None:
+        logger.error("fetch_program_info が None を返しました")
+        return "不明なタスクでエラー発生"
+
+    program_name, status, data_or_message = fetch_result
+    progress_message = ""
+
+    if status == "success":
+        result_count = 0
+        if isinstance(data_or_message, list):
+            valid_results = [res for res in data_or_message if isinstance(res, str)]
+            results_list.extend(valid_results)
+            result_count = len(valid_results)
+        elif isinstance(data_or_message, str) and data_or_message:
+            results_list.append(data_or_message)
+            result_count = 1
+        progress_message = f"{program_name} 完了 ({result_count}件)" if result_count > 0 else f"{program_name} 完了 (データなし)"
+    elif status == "failure":
+        failure_reason = data_or_message if isinstance(data_or_message, str) else "詳細不明"
+        max_len = 60
+        if len(failure_reason) > max_len:
+            failure_reason = failure_reason[:max_len] + "..."
+        progress_message = f"{program_name} 失敗: {failure_reason}"
+    else:
+        progress_message = f"{program_name} 未知の状態 ({status})"
+        logger.warning(f"不明なステータスを受け取りました: {fetch_result}")
+
+    return progress_message
+
 def main():
     """メイン関数"""
     # --- Logger Setup ---
@@ -554,49 +588,13 @@ def main():
                 for fetch_result in pool.imap_unordered(fetch_program_info, tasks):
                     processed_tasks += 1
                     elapsed_time = get_elapsed_time(start_time)
-                    progress_message = "" # 進捗行に表示するメッセージ
 
-                    # fetch_result が None でないことを確認 (通常はタプルが返るはず)
-                    if fetch_result is not None:
-                        program_name, status, data_or_message = fetch_result
-
-                        if status == "success":
-                            # 成功した場合
-                            result_count_str = ""
-                            if isinstance(data_or_message, list):
-                                result_count_str = f" ({len(data_or_message)}件)"
-                            elif isinstance(data_or_message, str) and data_or_message:
-                                result_count_str = " (1件)"
-
-                            progress_message = f"{program_name} 完了{result_count_str}"
-
-                            # 成功データを results に追加
-                            if data_or_message is not None:
-                                if isinstance(data_or_message, list):
-                                    results.extend(res for res in data_or_message if isinstance(res, str))
-                                elif isinstance(data_or_message, str):
-                                    results.append(data_or_message)
-
-                        elif status == "failure":
-                            # 失敗した場合、理由メッセージを表示に含める
-                            failure_reason = data_or_message if isinstance(data_or_message, str) else "詳細不明"
-                            # 長すぎるメッセージは切り詰めるなどしても良い
-                            max_len = 60
-                            if len(failure_reason) > max_len:
-                                failure_reason = failure_reason[:max_len] + "..."
-                            progress_message = f"{program_name} 失敗: {failure_reason}"
-                        else:
-                            # 予期しないステータス
-                            progress_message = f"{program_name} 未知の状態 ({status})"
-                            global_logger.warning(f"不明なステータスを受け取りました: {fetch_result}")
-
-                    else:
-                        # fetch_program_info が None を返した場合 (基本的にはないはず)
-                        progress_message = "不明なタスクでエラー発生"
-                        global_logger.error("fetch_program_info が None を返しました")
+                    # ヘルパー関数で結果処理とメッセージ生成
+                    progress_message = _process_fetch_result(fetch_result, results, global_logger)
 
                     # 進捗表示 (1行にまとめる)
-                    print(f"進捗: {processed_tasks}/{total_tasks} ({progress_message}) （経過時間：{elapsed_time:.0f}秒）")
+                    # \r を使って行を上書きすることで、ログが流れすぎるのを防ぐ
+                    print(f"進捗: {processed_tasks}/{total_tasks} ({progress_message}) （経過時間：{elapsed_time:.0f}秒）") # ← print 文を修正
 
             global_logger.info("並列処理が完了しました。")
 
