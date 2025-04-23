@@ -40,51 +40,6 @@ client = tweepy.Client(
 rate_limit_remaining = None
 rate_limit_reset = None
 
-# # レート制限情報を取得する関数（リトライ処理付き）
-# def get_rate_limit_info(client, max_retries=3, base_delay=10):
-#     """レート制限情報を取得する関数（リトライ処理付き）"""
-#     global rate_limit_remaining, rate_limit_reset # グローバル変数を更新する宣言
-#     # モジュールレベルの logger を使用
-
-#     for attempt in range(max_retries):
-#         try:
-#             # user_auth=True が必要（アプリケーション認証ではレート情報が返らない場合がある）
-#             response = client.get_me(user_auth=True) # 自分自身の情報を取得してヘッダーを見る
-
-#             if hasattr(response, 'rate_limit'): # v2 では response.rate_limit に情報が入る場合がある
-#                 rate_limit_remaining = response.rate_limit.remaining
-#                 rate_limit_limit = response.rate_limit.limit
-#                 rate_limit_reset = response.rate_limit.reset
-#                 logger.info(f"レート制限情報 (v2): 残り={rate_limit_remaining}, 上限={rate_limit_limit}, リセット={datetime.fromtimestamp(rate_limit_reset) if rate_limit_reset else 'N/A'}")
-#                 return rate_limit_remaining, rate_limit_limit, rate_limit_reset
-#             # v1.1 API 互換のヘッダー情報もチェック ( tweepy v4 でも取得できる場合がある )
-#             elif hasattr(response, 'resp') and hasattr(response.resp, 'headers'):
-#                  headers = response.resp.headers
-#                  rate_limit_remaining = int(headers.get('x-rate-limit-remaining', -1))
-#                  rate_limit_limit = int(headers.get('x-rate-limit-limit', -1))
-#                  rate_limit_reset = int(headers.get('x-rate-limit-reset', -1))
-#                  logger.info(f"レート制限情報 (Header): 残り={rate_limit_remaining}, 上限={rate_limit_limit}, リセット={datetime.fromtimestamp(rate_limit_reset) if rate_limit_reset > 0 else 'N/A'}")
-#                  return rate_limit_remaining, rate_limit_limit, rate_limit_reset
-#             else:
-#                 logger.warning("レート制限情報の取得に失敗しました (レスポンス形式不明)。")
-#                 return None, None, None
-
-#         except tweepy.TweepyException as e:
-#             if isinstance(e, tweepy.errors.TooManyRequests):
-#                 delay = base_delay * (2 ** attempt)
-#                 logger.warning(f"レートリミット超過 (情報取得時): {delay}秒待機...")
-#                 time.sleep(delay)
-#             else:
-#                 logger.error(f"レート制限情報取得中にエラー: {e}", exc_info=True)
-#                 return None, None, None
-#         except Exception as e:
-#              logger.error(f"レート制限情報取得中に予期せぬエラー: {e}", exc_info=True)
-#              return None
-
-
-#     logger.error("レート制限情報取得のリトライ上限に達しました。")
-#     return None, None, None
-
 def update_rate_limit_from_response(response):
     """レスポンスからレート制限情報を取得・更新する試み"""
     global rate_limit_remaining, rate_limit_reset
@@ -175,20 +130,24 @@ def post_tweet_with_retry(client, text, in_reply_to_tweet_id=None, max_retries=3
             logger.info(f"ツイート成功: ID={tweet_id}")
 
             # ★★★ 投稿成功後にレスポンスからレート制限情報を更新 ★★★
-            update_rate_limit_from_response(response, logger)
+            update_rate_limit_from_response(response)
 
             return tweet_id
 
         except tweepy.errors.TooManyRequests as e:
             logger.warning(f"レートリミット超過 (429エラー): {e}")
             reset_time = None
-            # 429エラーのレスポンスヘッダーからリセット時間を取得する
             if hasattr(e, 'response') and e.response is not None and hasattr(e.response, 'headers'):
                 reset_header = e.response.headers.get('x-rate-limit-reset')
                 if reset_header:
                     try:
                         reset_time = int(reset_header)
                         rate_limit_reset = reset_time # グローバル変数も更新
+                        # タイムゾーンを考慮してローカル時間を表示する場合 (参考)
+                        # local_reset_time = datetime.fromtimestamp(reset_time)
+                        # logger.info(f"レートリミットリセット時刻 (ヘッダーより, UTC): {datetime.utcfromtimestamp(reset_time)}")
+                        # logger.info(f"レートリミットリセット時刻 (ヘッダーより, Local): {local_reset_time}")
+                        # 現在はUTCで表示
                         logger.info(f"レートリミットリセット時刻 (ヘッダーより): {datetime.fromtimestamp(reset_time)}")
                     except (ValueError, TypeError):
                         logger.warning("x-rate-limit-reset ヘッダーの解析に失敗。")
@@ -206,14 +165,67 @@ def post_tweet_with_retry(client, text, in_reply_to_tweet_id=None, max_retries=3
                 delay = base_delay * (2 ** attempt)
                 logger.warning(f"リセット時刻不明。{delay}秒待機します...")
 
-            time.sleep(delay)
+            # --- カウントダウン表示付き待機 ---
+            wait_start_time = time.monotonic() # より正確な時間計測のため
+            total_wait_seconds_int = int(delay) # 整数秒を取得
+
+            try:
+                for i in range(total_wait_seconds_int, 0, -1):
+                    # \r でカーソルを行頭に戻し、同じ行に残り時間を上書き表示
+                    # end='' で改行を防ぐ
+                    # 後ろのスペースは、秒数が減ったときに前の桁の数字が残らないようにするため
+                    print(f"\r⏳ 残り {i} 秒...          ", end='')
+                    time.sleep(1) # 1秒待機
+
+                # ループが終わったら表示をクリア
+                print("\r✅ 待機完了。                 ")
+
+                # 念のため、計算上の待機時間と実際の待機時間の差を調整
+                # (ループ処理や print のオーバーヘッドを考慮)
+                elapsed_time = time.monotonic() - wait_start_time
+                remaining_fractional_sleep = delay - elapsed_time
+                if remaining_fractional_sleep > 0:
+                    time.sleep(remaining_fractional_sleep)
+
+            except KeyboardInterrupt:
+                print("\n🚫 待機中に中断されました (Ctrl+C)。")
+                # 中断した場合、例外を再送出してスクリプトを停止させるか、
+                # 特定の処理を行うかを選択できます。
+                # ここでは再送出してプログラムを終了させます。
+                raise
+
             # リトライ前にレート情報をリセット（次の試行で再取得を試みる or エラー待ち）
             rate_limit_remaining = None
             rate_limit_reset = None
 
+        except tweepy.errors.Forbidden as e: # ★★★ Forbidden (403) エラーを個別に捕捉 ★★★
+            logger.error(f"Twitter APIエラー (Forbidden - 403): {e}")
+            # API code 187 が Duplicate status
+            is_duplicate = False
+            if hasattr(e, 'api_codes') and 187 in e.api_codes:
+                is_duplicate = True
+                logger.error("エラー原因: 重複ツイート (API Code 187)")
+            elif "duplicate content" in str(e).lower():
+                is_duplicate = True
+                logger.error("エラー原因: 重複ツイート (エラーメッセージより判断)")
+
+            if is_duplicate:
+                logger.error("重複ツイートのため、リトライせずに終了します。")
+                return None # ★★★ リトライしない ★★★
+            else:
+                logger.error("重複以外のForbiddenエラーのため、リトライせずに終了します。")
+                # 必要であればエラー詳細を出力
+                if hasattr(e, 'response') and e.response is not None:
+                    try:
+                        error_data = e.response.json()
+                        logger.error(f"エラー詳細 (JSON): {error_data}")
+                    except Exception as json_error:
+                        logger.error(f"レスポンスのJSON解析失敗: {json_error}")
+                        logger.error(f"レスポンスボディ(raw): {e.response.text}")
+                return None # ★★★ リトライしない ★★★
+
         except tweepy.errors.BadRequest as e:
             logger.error(f"Twitter APIエラー (BadRequest - 400): {e}", exc_info=True)
-            # エラー詳細を出力
             if hasattr(e, 'response') and e.response is not None:
                 try:
                     error_data = e.response.json()
@@ -225,12 +237,11 @@ def post_tweet_with_retry(client, text, in_reply_to_tweet_id=None, max_retries=3
 
         except tweepy.TweepyException as e:
             logger.error(f"Tweepyエラー: {e}", exc_info=True)
-            # リトライするかどうかはエラー内容によるが、一旦リトライする
             delay = base_delay * (2 ** attempt)
             logger.warning(f"Tweepyエラー発生、{delay}秒待機してリトライします...")
             time.sleep(delay)
 
-        except Exception as e:
+        except Exception as e: # 予期せぬエラー
             logger.error(f"予期せぬエラー: {e}", exc_info=True)
             return None
 
@@ -268,9 +279,6 @@ if __name__ == "__main__":
         global_logger.critical(f"❌ Twitter APIクライアント作成または認証チェック中にエラー: {e}", exc_info=True)
         sys.exit(1)
 
-    # # レート制限情報を最初に取得
-    # get_rate_limit_info(client)
-
     # コマンドライン引数
     if len(sys.argv) < 2:
         global_logger.error("日付引数がありません。")
@@ -303,8 +311,6 @@ if __name__ == "__main__":
     header_text = get_header_text(date)
     if not header_text:
         global_logger.error("日付形式エラーのためヘッダーが作成できませんでした。")
-        # ヘッダーなしで投稿を続けるか、ここで終了するか検討
-        # sys.exit(1)
         # ヘッダーなしで最初のツイートを投稿する場合:
         first_tweet_text = tweets_to_post[0]
     else:
