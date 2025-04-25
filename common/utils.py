@@ -28,6 +28,7 @@ class Constants:
         DEFAULT_MINUTE = 0
         SLEEP_SECONDS = 2 # URLを開く際の待機時間
         DEFAULT_TIMEOUT = 10 # デフォルトのタイムアウト時間
+        SHORT_TIMEOUT = 5 # 短めのタイムアウトを追加 (必要に応じて調整)
 
     class Program:
         """番組関連の定数"""

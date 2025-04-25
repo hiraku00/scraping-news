@@ -322,8 +322,18 @@ class TVTokyoScraper(BaseScraper):
                     self.logger.warning(f"{program_name} のエピソードリスト要素が見つかりませんでした（タイムアウト） - {target_url}")
                     continue # 次のURLへ
 
-                # 少し待機（動的コンテンツ読み込みのため）
-                time.sleep(1) # 必要に応じて調整
+                # 動的コンテンツ（特に日付やリンク情報）が読み込まれるのを待機
+                # リストの最後の要素が 'visibility' (表示状態) になるまで待つ
+                try:
+                    # 最後の要素を取得するCSSセレクタ :last-child を使用
+                    last_item_selector = f"{Constants.CSSSelector.TVTOKYO_VIDEO_ITEM}:last-child"
+                    WebDriverWait(driver, Constants.Time.SHORT_TIMEOUT).until( # 少し短めのタイムアウトで試行
+                        EC.visibility_of_element_located((By.CSS_SELECTOR, last_item_selector))
+                    )
+                    self.logger.debug(f"リストの最後の要素が表示されるのを待機完了 - {program_name} - {target_url}")
+                except TimeoutException:
+                    # タイムアウトしても、要素が取得できる可能性はあるため、警告に留めて処理を続行
+                    self.logger.warning(f"リストの最後の要素の表示待機中にタイムアウトしましたが、処理を続行します - {program_name} - {target_url}")
 
                 episode_elements = driver.find_elements(By.CSS_SELECTOR, Constants.CSSSelector.TVTOKYO_VIDEO_ITEM)
                 if not episode_elements:
