@@ -5,14 +5,20 @@ import configparser
 import re
 import time
 from datetime import datetime, timedelta
+from enum import Enum, auto
 import pytz
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
+class ScrapeStatus(Enum):
+    """スクレイピング処理のステータスを表す Enum"""
+    SUCCESS = auto()
+    FAILURE = auto()
+    NOT_FOUND = auto() # 必要に応じて追加 (例: 対象エピソードが見つからない場合など)
+
 # --- モジュールレベルのロガーを取得 ---
-# このモジュール内の関数はこの logger を使用する
 logger = logging.getLogger(__name__)
 
 # 定数定義クラス (Constants) は変更なし ...

@@ -16,16 +16,18 @@ from common.episode_processor import EpisodeProcessor
 from common.utils import (
     setup_logger, WebDriverManager, parse_programs_config,
     sort_blocks_by_time, Constants, format_date,
-    format_program_time, extract_program_time_info
+    format_program_time, extract_program_time_info,
+    ScrapeStatus
 )
 from common.CustomExpectedConditions import CustomExpectedConditions
 
 # --- 型エイリアス定義 ---
 # Scraper が返す型
 ScrapeResultData = Optional[Union[str, List[str]]]
-ScrapeResult = Tuple[str, ScrapeResultData] # (status, data_or_message)
+ScrapeResult = Tuple[ScrapeStatus, ScrapeResultData]
+
 # fetch_program_info が返す型
-FetchResult: TypeAlias = Optional[Tuple[str, str, ScrapeResultData]] # (program_name, status, data_or_message)
+FetchResult: TypeAlias = Optional[Tuple[str, ScrapeStatus, ScrapeResultData]]
 
 class NHKScraper(BaseScraper):
     """NHKの番組情報をスクレイピングするクラス"""
@@ -34,10 +36,10 @@ class NHKScraper(BaseScraper):
         self.episode_processor = EpisodeProcessor(self.logger)
 
     @BaseScraper.log_operation("番組情報の取得") # 修正したデコレータを使用
-    def get_program_info(self, program_name: str, target_date: str) -> ScrapeResult: # 戻り値の型を ScrapeResult に
+    def get_program_info(self, program_name: str, target_date: str) -> ScrapeResult:
         """指定された番組の情報を取得する"""
         if not self.validate_config(program_name):
-            return "failure", f"設定情報が見つかりません" # ステータスとメッセージを返す
+            return ScrapeStatus.FAILURE, f"設定情報が見つかりません"
 
         program_info = self.config.get(program_name)
 
@@ -47,27 +49,27 @@ class NHKScraper(BaseScraper):
                 # _get_nhk_formatted_episode_info は成功すれば文字列、失敗すれば None を返す想定
                 formatted_info = self._get_nhk_formatted_episode_info(driver, program_name, episode_url, program_info.get("channel", "不明"))
                 if formatted_info:
-                    return "success", formatted_info # 成功タプル
+                    return ScrapeStatus.SUCCESS, formatted_info
                 else:
                     # 整形失敗
-                    return "failure", f"詳細情報の整形/取得に失敗" # 失敗タプル
+                    return ScrapeStatus.FAILURE, f"詳細情報の整形/取得に失敗"
             else:
                 # エピソードが見つからない
-                return "failure", f"対象エピソードが見つかりません" # 失敗タプル
+                return ScrapeStatus.NOT_FOUND, f"対象エピソードが見つかりません"
 
         # execute_with_driver は成功すれば scrape_operation の結果 (ScrapeResult)、失敗すれば None を返す
         result = self.execute_with_driver(scrape_operation)
 
         if result is None:
             # WebDriver 操作中のエラーなど
-            return "failure", f"WebDriverエラーまたは内部エラー発生"
-        elif isinstance(result, tuple) and len(result) == 2:
+            return ScrapeStatus.FAILURE, f"WebDriverエラーまたは内部エラー発生"
+        elif isinstance(result, tuple) and len(result) == 2 and isinstance(result[0], ScrapeStatus):
             # scrape_operation が正常に ScrapeResult を返した場合
             return result # そのまま返す
         else:
             # 予期しない戻り値
             self.logger.error(f"execute_with_driver が予期しない値を返しました: {result}")
-            return "failure", f"予期しない内部エラー"
+            return ScrapeStatus.FAILURE, f"予期しない内部エラー"
 
     @BaseScraper.handle_selenium_error
     def _extract_nhk_episode_info(self, driver, target_date: str, program_title: str) -> str | None:
@@ -217,7 +219,7 @@ class TVTokyoScraper(BaseScraper):
     @BaseScraper.log_operation("番組情報の取得")
     def get_program_info(self, program_name: str, target_date: str) -> ScrapeResult:
         if not self.validate_config(program_name):
-            return "failure", f"設定情報が見つかりません"
+            return ScrapeStatus.FAILURE, f"設定情報が見つかりません"
 
         program_config = self.config.get(program_name)
         # --- デバッグログ追加 ---
@@ -256,14 +258,14 @@ class TVTokyoScraper(BaseScraper):
 
                 if not target_urls:
                     self.logger.error(f"[{program_name}] 設定から有効なURLが見つかりませんでした。")
-                    return "failure", f"有効なURLが設定されていません"
+                    return ScrapeStatus.FAILURE, f"有効なURLが設定されていません"
 
                 # _extract_tvtokyo_episode_urls は成功すればリスト、失敗すれば空リストを返す想定
                 episode_urls = self._extract_tvtokyo_episode_urls(driver, target_urls, formatted_date, program_name)
 
                 if not episode_urls:
                     # 放送が見つからない場合は failure
-                    return "failure", f"放送が見つかりませんでした (日付: {formatted_date})"
+                    return ScrapeStatus.NOT_FOUND, f"放送が見つかりませんでした (日付: {formatted_date})"
 
                 # --- 詳細取得とフォーマット ---
                 all_formatted_outputs = []
@@ -275,7 +277,8 @@ class TVTokyoScraper(BaseScraper):
                         episode_details.append(detail) # 有効なものだけ追加
 
                 if not episode_details: # 有効な詳細が一つもない場合
-                    return "failure", f"有効なエピソード詳細が見つかりませんでした"
+                    # 詳細が見つからない場合も NOT_FOUND 相当かもしれないが、URLはあるので FAILURE が適切か
+                    return ScrapeStatus.FAILURE, f"有効なエピソード詳細が見つかりませんでした"
 
                 for episode_title, episode_detail_url in episode_details:
                     formatted_output = self._format_program_output(
@@ -288,16 +291,16 @@ class TVTokyoScraper(BaseScraper):
                         all_formatted_outputs.append(formatted_output)
 
                 if not all_formatted_outputs: # フォーマット結果が空の場合
-                    return "failure", f"有効なフォーマット済み出力が得られませんでした"
+                    return ScrapeStatus.FAILURE, f"有効なフォーマット済み出力が得られませんでした"
 
                 # 成功
                 # self.logger.info(f"{program_name} の詳細情報 ({len(all_formatted_outputs)} 件) を取得しました") # 完了ログはデコレータに任せる (DEBUGレベルで出力)
-                return "success", all_formatted_outputs
+                return ScrapeStatus.SUCCESS, all_formatted_outputs
 
         except Exception as e:
             # WebDriverManager の外、または予期せぬエラー
             self.logger.error(f"番組情報取得中にエラー: {e} - {program_name}", exc_info=True)
-            return "failure", f"処理中にエラー: {e}"
+            return ScrapeStatus.FAILURE, f"処理中にエラー: {e}"
 
     def _extract_tvtokyo_episode_urls(self, driver, target_urls: list[str], formatted_date: str, program_name: str) -> list[str]:
         """
@@ -425,8 +428,8 @@ def fetch_program_info(args: tuple[str, str, dict, str]) -> FetchResult: # 戻�
 
     try:
         scraper = None
-        status = "failure" # デフォルト
-        data_or_message = "不明なエラー" # デフォルト
+        status: ScrapeStatus = ScrapeStatus.FAILURE # デフォルト
+        data_or_message: ScrapeResultData = "不明なエラー" # デフォルト
 
         if task_type == 'nhk':
             scraper = NHKScraper(programs)
@@ -436,7 +439,7 @@ def fetch_program_info(args: tuple[str, str, dict, str]) -> FetchResult: # 戻�
             status, data_or_message = scraper.get_program_info(program_name, target_date)
         else:
             process_logger.error(f"不明なタスクタイプです: {task_type}")
-            return program_name, "failure", f"不明なタスクタイプ: {task_type}" # タプルで返す
+            return program_name, ScrapeStatus.FAILURE, f"不明なタスクタイプ: {task_type}"
 
         # scraper.get_program_info の結果をタプルで返す
         return program_name, status, data_or_message
@@ -444,7 +447,7 @@ def fetch_program_info(args: tuple[str, str, dict, str]) -> FetchResult: # 戻�
     except Exception as e:
         process_logger.error(f"{program_name} の情報取得プロセスで予期せぬエラー: {e}", exc_info=True)
         # プロセスレベルのエラーも failure タプルで返す
-        return program_name, "failure", f"プロセスエラー: {e}"
+        return program_name, ScrapeStatus.FAILURE, f"プロセスエラー: {e}"
 
 def get_elapsed_time(start_time: float) -> float:
     """経過時間を計算する"""
@@ -538,7 +541,7 @@ def _process_fetch_result(fetch_result: FetchResult, results_list: list[str], lo
     program_name, status, data_or_message = fetch_result
     progress_message = ""
 
-    if status == "success":
+    if status == ScrapeStatus.SUCCESS:
         result_count = 0
         if isinstance(data_or_message, list):
             valid_results = [res for res in data_or_message if isinstance(res, str)]
@@ -548,14 +551,17 @@ def _process_fetch_result(fetch_result: FetchResult, results_list: list[str], lo
             results_list.append(data_or_message)
             result_count = 1
         progress_message = f"{program_name} 完了 ({result_count}件)" if result_count > 0 else f"{program_name} 完了 (データなし)"
-    elif status == "failure":
+    elif status == ScrapeStatus.FAILURE:
         failure_reason = data_or_message if isinstance(data_or_message, str) else "詳細不明"
         max_len = 60
         if len(failure_reason) > max_len:
             failure_reason = failure_reason[:max_len] + "..."
         progress_message = f"{program_name} 失敗: {failure_reason}"
+    elif status == ScrapeStatus.NOT_FOUND:
+        reason = data_or_message if isinstance(data_or_message, str) else "詳細不明"
+        progress_message = f"{program_name} 対象なし: {reason}" # メッセージを調整
     else:
-        progress_message = f"{program_name} 未知の状態 ({status})"
+        progress_message = f"{program_name} 未知の状態 ({status.name})"
         logger.warning(f"不明なステータスを受け取りました: {fetch_result}")
 
     return progress_message
@@ -604,8 +610,9 @@ def main():
 
                     # 進捗表示 (1行にまとめる)
                     # \r を使って行を上書きすることで、ログが流れすぎるのを防ぐ
-                    print(f"進捗: {processed_tasks}/{total_tasks} ({progress_message}) （経過時間：{elapsed_time:.0f}秒）") # ← print 文を修正
+                    print(f"\r進捗: {processed_tasks}/{total_tasks} ({progress_message}) （経過時間：{elapsed_time:.0f}秒）", end="")
 
+            print() # \r で上書きした行の後で改行を入れる
             global_logger.info("並列処理が完了しました。")
 
         # --- 結果の集計とファイル書き込み ---
