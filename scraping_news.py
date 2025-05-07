@@ -610,7 +610,7 @@ def main():
 
                     # 進捗表示 (1行にまとめる)
                     # \r を使って行を上書きすることで、ログが流れすぎるのを防ぐ
-                    print(f"\r進捗: {processed_tasks}/{total_tasks} ({progress_message}) （経過時間：{elapsed_time:.0f}秒）", end="")
+                    print(f"\n進捗: {processed_tasks}/{total_tasks} ({progress_message}) （経過時間：{elapsed_time:.0f}秒）", end="")
 
             print() # \r で上書きした行の後で改行を入れる
             global_logger.info("並列処理が完了しました。")
