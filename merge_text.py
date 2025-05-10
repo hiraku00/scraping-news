@@ -26,13 +26,10 @@ def sort_and_merge_text(file1_path: str, file2_path: str, output_path: str, befo
     """
     2つのテキストファイルを読み込み、時間でソートしてマージする。
     """
-    # logger = setup_logger(__name__) # <-- 削除、モジュールレベルの logger を使用
-
-    # file2_path (YYYYMMDD.txt) は必須
-    if not os.path.exists(file2_path):
-        logger.error(f"必須ファイル {file2_path} が見つかりません。処理を中断します。")
-        # raise FileNotFoundError(f"必須ファイル {file2_path} が見つかりません。")
-        return # エラーを出力して終了
+    # 'file1_path' or 'file2_path' が存在しない場合
+    if not os.path.exists(file1_path) or not os.path.exists(file2_path):
+        logger.warning(f"ファイル {file1_path} または {file2_path} が存在しないため、スキップします。")
+        return
 
     # 元のファイル (file2_path) をリネーム (バックアップ)
     try:
