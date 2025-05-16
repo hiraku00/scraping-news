@@ -219,88 +219,82 @@ class TVTokyoScraper(BaseScraper):
     @BaseScraper.log_operation("番組情報の取得")
     def get_program_info(self, program_name: str, target_date: str) -> ScrapeResult:
         if not self.validate_config(program_name):
-            return ScrapeStatus.FAILURE, f"設定情報が見つかりません"
+            return ScrapeStatus.FAILURE, "設定情報が見つかりません"
 
         program_config = self.config.get(program_name)
-        # --- デバッグログ追加 ---
-        self.logger.debug(f"[{program_name}] 設定内容: {program_config}") # 設定内容全体をログ出力
+        self.logger.debug(f"[{program_name}] 設定内容: {program_config}")
 
         try:
-            # WebDriverManagerを使う場合 (execute_with_driverを使わない場合)
             with WebDriverManager() as driver:
                 formatted_date = format_date(target_date)
                 weekday = datetime.strptime(target_date, '%Y%m%d').weekday()
                 program_time = format_program_time(program_config.get('name'), weekday, program_config.get('time'))
 
-                target_urls = []
-                urls_value = program_config.get("urls") # .get() でキー存在確認と取得を同時に行う
-                url_value = program_config.get("url")   # 同上
-
-                if urls_value:
-                    self.logger.debug(f"[{program_name}] 'urls' キーを処理: {urls_value} (型: {type(urls_value)})")
-                    if isinstance(urls_value, str):
-                        target_urls = [url.strip() for url in urls_value.split(',') if url.strip()]
-                    elif isinstance(urls_value, list):
-                        target_urls = [str(url).strip() for url in urls_value if str(url).strip()]
-                    else:
-                        self.logger.warning(f"[{program_name}] 'urls' の型が不正 ({type(urls_value)})。'url' キーを試行します。")
-                        # 'urls' が不正でも 'url' の処理に進む
-
-                # 'urls' がない、または処理結果が空、または型が不正だった場合、'url' を試行
-                if not target_urls and url_value:
-                    self.logger.debug(f"[{program_name}] 'url' キーを処理: {url_value} (型: {type(url_value)})")
-                    if isinstance(url_value, str) and url_value.strip():
-                        target_urls = [url_value.strip()]
-                    else:
-                        self.logger.warning(f"[{program_name}] 'url' キーの値が無効です: {url_value}")
-
-                self.logger.debug(f"[{program_name}] 最終的な target_urls: {target_urls}")
-
+                target_urls = self._prepare_target_urls(program_config, program_name)
                 if not target_urls:
-                    self.logger.error(f"[{program_name}] 設定から有効なURLが見つかりませんでした。")
-                    return ScrapeStatus.FAILURE, f"有効なURLが設定されていません"
+                    return ScrapeStatus.FAILURE, "有効なURLが設定されていません"
 
-                # _extract_tvtokyo_episode_urls は成功すればリスト、失敗すれば空リストを返す想定
-                episode_urls = self._extract_tvtokyo_episode_urls(driver, target_urls, formatted_date, program_name)
-
-                if not episode_urls:
-                    # 放送が見つからない場合は failure
-                    return ScrapeStatus.NOT_FOUND, f"放送が見つかりませんでした (日付: {formatted_date})"
-
-                # --- 詳細取得とフォーマット ---
-                all_formatted_outputs = []
-                episode_details = []
-                for url in episode_urls:
-                    # _fetch_tvtokyo_episode_details は (title, url) または (None, None) などを返す
-                    detail = self._fetch_tvtokyo_episode_details(driver, url, program_name)
-                    if detail and detail[0] and detail[1]: # title と url が両方ある場合のみ
-                        episode_details.append(detail) # 有効なものだけ追加
-
-                if not episode_details: # 有効な詳細が一つもない場合
-                    # 詳細が見つからない場合も NOT_FOUND 相当かもしれないが、URLはあるので FAILURE が適切か
-                    return ScrapeStatus.FAILURE, f"有効なエピソード詳細が見つかりませんでした"
-
-                for episode_title, episode_detail_url in episode_details:
-                    formatted_output = self._format_program_output(
-                        program_title=program_config['name'],
-                        program_time=program_time,
-                        episode_title=episode_title,
-                        url_to_display=episode_detail_url
-                    )
-                    if formatted_output:
-                        all_formatted_outputs.append(formatted_output)
-
-                if not all_formatted_outputs: # フォーマット結果が空の場合
-                    return ScrapeStatus.FAILURE, f"有効なフォーマット済み出力が得られませんでした"
-
-                # 成功
-                # self.logger.info(f"{program_name} の詳細情報 ({len(all_formatted_outputs)} 件) を取得しました") # 完了ログはデコレータに任せる (DEBUGレベルで出力)
-                return ScrapeStatus.SUCCESS, all_formatted_outputs
+                return self._fetch_and_format_tvtokyo_episodes(
+                    driver, program_config, target_urls, formatted_date, program_time, program_name
+                )
 
         except Exception as e:
-            # WebDriverManager の外、または予期せぬエラー
             self.logger.error(f"番組情報取得中にエラー: {e} - {program_name}", exc_info=True)
             return ScrapeStatus.FAILURE, f"処理中にエラー: {e}"
+
+    def _prepare_target_urls(self, program_config: dict, program_name: str) -> List[str]:
+        target_urls = []
+        urls_value = program_config.get("urls")
+        url_value = program_config.get("url")
+
+        if urls_value:
+            self.logger.debug(f"[{program_name}] 'urls' キーを処理: {urls_value} (型: {type(urls_value)})")
+            if isinstance(urls_value, str):
+                target_urls = [url.strip() for url in urls_value.split(',') if url.strip()]
+            elif isinstance(urls_value, list):
+                target_urls = [str(url).strip() for url in urls_value if str(url).strip()]
+            else:
+                self.logger.warning(f"[{program_name}] 'urls' の型が不正 ({type(urls_value)})。'url' キーを試行します。")
+
+        if not target_urls and url_value:
+            self.logger.debug(f"[{program_name}] 'url' キーを処理: {url_value} (型: {type(url_value)})")
+            if isinstance(url_value, str) and url_value.strip():
+                target_urls = [url_value.strip()]
+            else:
+                self.logger.warning(f"[{program_name}] 'url' キーの値が無効です: {url_value}")
+
+        self.logger.debug(f"[{program_name}] 最終的な target_urls: {target_urls}")
+        return target_urls
+
+    def _fetch_and_format_tvtokyo_episodes(self, driver, program_config: dict, target_urls: List[str], formatted_date: str, program_time: str, program_name: str) -> ScrapeResult:
+        episode_urls = self._extract_tvtokyo_episode_urls(driver, target_urls, formatted_date, program_name)
+        if not episode_urls:
+            return ScrapeStatus.NOT_FOUND, f"放送が見つかりませんでした (日付: {formatted_date})"
+
+        all_formatted_outputs = []
+        episode_details = []
+        for url in episode_urls:
+            detail = self._fetch_tvtokyo_episode_details(driver, url, program_name)
+            if detail and detail[0] and detail[1]:
+                episode_details.append(detail)
+
+        if not episode_details:
+            return ScrapeStatus.FAILURE, "有効なエピソード詳細が見つかりませんでした"
+
+        for episode_title, episode_detail_url in episode_details:
+            formatted_output = self._format_program_output(
+                program_title=program_config['name'],
+                program_time=program_time,
+                episode_title=episode_title,
+                url_to_display=episode_detail_url
+            )
+            if formatted_output:
+                all_formatted_outputs.append(formatted_output)
+
+        if not all_formatted_outputs:
+            return ScrapeStatus.FAILURE, "有効なフォーマット済み出力が得られませんでした"
+
+        return ScrapeStatus.SUCCESS, all_formatted_outputs
 
     def _extract_tvtokyo_episode_urls(self, driver, target_urls: list[str], formatted_date: str, program_name: str) -> list[str]:
         """
