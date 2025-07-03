@@ -17,7 +17,7 @@ from common.episode_processor import EpisodeProcessor
 from common.utils import (
     setup_logger, WebDriverManager, parse_programs_config,
     sort_blocks_by_time, Constants, format_date,
-    format_program_time, # extract_program_time_info,
+    format_program_time,
     ScrapeStatus
 )
 from common.CustomExpectedConditions import CustomExpectedConditions

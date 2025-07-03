@@ -309,6 +309,18 @@ def format_date(target_date: str) -> str:
         logger.error(f"日付フォーマットに失敗しました: {target_date} - {e}", exc_info=True)
         return target_date
 
+def format_program_time(program_name: str, weekday: int, default_time: str) -> str:
+    """番組時間をフォーマットする (TV Tokyo用)"""
+    if program_name.startswith(Constants.Program.WBS_PROGRAM_NAME):
+        time_str = "22:00-22:58" if weekday < 4 else "23:00-23:58" # 金曜以外と金曜 (定数化推奨)
+        channel = "テレ東" # 定数化推奨
+        logger.debug(f"WBS ({'月-木' if weekday < 4 else '金'}) の時間を設定: {time_str}")
+        return f"({channel} {time_str})"
+    else:
+        channel = "テレ東" # 定数化推奨
+        logger.debug(f"{program_name} のデフォルト時間を設定: {default_time}")
+        return f"({channel} {default_time})"
+
 def extract_time_info_from_text(text: str) -> str:
     """ツイートテキストから時刻情報を抽出・整形する"""
     time_info = "時刻抽出失敗"
