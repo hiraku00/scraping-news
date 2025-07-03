@@ -8,6 +8,7 @@ import sys
 import time
 import multiprocessing
 import re
+import json
 from selenium.common.exceptions import TimeoutException, NoSuchElementException, StaleElementReferenceException
 import logging
 from typing import Optional, Union, List, TypeAlias, Tuple
@@ -16,7 +17,7 @@ from common.episode_processor import EpisodeProcessor
 from common.utils import (
     setup_logger, WebDriverManager, parse_programs_config,
     sort_blocks_by_time, Constants, format_date,
-    format_program_time, extract_program_time_info,
+    format_program_time, # extract_program_time_info,
     ScrapeStatus
 )
 from common.CustomExpectedConditions import CustomExpectedConditions
@@ -35,7 +36,7 @@ class NHKScraper(BaseScraper):
         super().__init__(config)
         self.episode_processor = EpisodeProcessor(self.logger)
 
-    @BaseScraper.log_operation("番組情報の取得") # 修正したデコレータを使用
+    @BaseScraper.log_operation("番組情報の取得")
     def get_program_info(self, program_name: str, target_date: str) -> ScrapeResult:
         """指定された番組の情報を取得する"""
         if not self.validate_config(program_name):
@@ -46,28 +47,21 @@ class NHKScraper(BaseScraper):
         def scrape_operation(driver) -> ScrapeResult:
             episode_url = self._extract_nhk_episode_info(driver, target_date, program_name)
             if episode_url:
-                # _get_nhk_formatted_episode_info は成功すれば文字列、失敗すれば None を返す想定
                 formatted_info = self._get_nhk_formatted_episode_info(driver, program_name, episode_url, program_info.get("channel", "不明"))
                 if formatted_info:
                     return ScrapeStatus.SUCCESS, formatted_info
                 else:
-                    # 整形失敗
                     return ScrapeStatus.FAILURE, f"詳細情報の整形/取得に失敗"
             else:
-                # エピソードが見つからない
                 return ScrapeStatus.NOT_FOUND, f"対象エピソードが見つかりません"
 
-        # execute_with_driver は成功すれば scrape_operation の結果 (ScrapeResult)、失敗すれば None を返す
         result = self.execute_with_driver(scrape_operation)
 
         if result is None:
-            # WebDriver 操作中のエラーなど
             return ScrapeStatus.FAILURE, f"WebDriverエラーまたは内部エラー発生"
         elif isinstance(result, tuple) and len(result) == 2 and isinstance(result[0], ScrapeStatus):
-            # scrape_operation が正常に ScrapeResult を返した場合
-            return result # そのまま返す
+            return result
         else:
-            # 予期しない戻り値
             self.logger.error(f"execute_with_driver が予期しない値を返しました: {result}")
             return ScrapeStatus.FAILURE, f"予期しない内部エラー"
 
@@ -90,7 +84,48 @@ class NHKScraper(BaseScraper):
                 return self.episode_processor.extract_episode_url(episode, program_title)
         return None
 
+    #【新設】JSON-LDから放送時間を抽出するメソッド
+    def _extract_time_from_json_ld(self, driver) -> Optional[str]:
+        """エピソード詳細ページのJSON-LDから放送時間を抽出する。"""
+        try:
+            script_element = WebDriverWait(driver, Constants.Time.SHORT_TIMEOUT).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, 'script[type="application/ld+json"]'))
+            )
+            json_text = script_element.get_attribute('innerHTML')
+            data = json.loads(json_text)
 
+            # "startDate"と"endDate"を含む可能性のあるキーを探す
+            publication_event = None
+            if 'detailedRecentEvent:customProperty' in data and isinstance(data.get('detailedRecentEvent:customProperty'), dict):
+                publication_event = data['detailedRecentEvent:customProperty']
+            elif 'publication' in data:
+                # 'publication'はリストの場合と辞書の場合がある
+                if isinstance(data['publication'], list) and len(data['publication']) > 0:
+                    publication_event = data['publication'][0]
+                elif isinstance(data['publication'], dict):
+                    publication_event = data['publication']
+
+            if not publication_event:
+                self.logger.warning("JSON-LD内に放送時間情報 (publication_event) が見つかりませんでした。")
+                return None
+
+            start_date_str = publication_event.get('startDate')
+            end_date_str = publication_event.get('endDate')
+
+            if start_date_str and end_date_str:
+                start_time = datetime.fromisoformat(start_date_str).strftime('%H:%M')
+                end_time = datetime.fromisoformat(end_date_str).strftime('%H:%M')
+                return f"{start_time}-{end_time}"
+            else:
+                self.logger.warning("JSON-LD内に startDate または endDate が見つかりませんでした。")
+                return None
+
+        except (NoSuchElementException, TimeoutException):
+            self.logger.debug("JSON-LDのscriptタグが見つかりませんでした。")
+            return None
+        except (json.JSONDecodeError, KeyError, ValueError) as e:
+            self.logger.error(f"JSON-LDからの時間抽出中にエラーが発生: {e}")
+            return None
 
     @BaseScraper.handle_selenium_error
     def _get_nhk_formatted_episode_info(self, driver, program_title: str, episode_url: str, channel: str) -> str | None:
@@ -104,15 +139,25 @@ class NHKScraper(BaseScraper):
             return self._format_bs_special_output(driver, program_title, channel, episode_url, episode_title)
 
         nhk_plus_url = self._extract_nhk_plus_url(driver)
-        formatted_output = self._process_eyecatch_or_iframe(driver, program_title, episode_url, channel, episode_title, nhk_plus_url)
+
+        #【修正】時間取得処理を _process_eyecatch_or_iframe の外に移動し、一元化
+        time_str = self._extract_time_from_json_ld(driver)
+        if time_str:
+            program_time = f"({channel} {time_str})"
+        else:
+            self.logger.warning(f"放送時間が取得できませんでした。({program_title})")
+            program_time = f"({channel} 時間未定)"
+
+        # _process_eyecatch_or_iframe に program_time を渡すように変更
+        formatted_output = self._process_eyecatch_or_iframe(driver, program_title, episode_url, episode_title, nhk_plus_url, program_time)
         if formatted_output:
             return formatted_output
 
-        return self._format_fallback_output(driver, program_title, episode_url, channel, episode_title)
+        #【修正】フォールバックでも program_time を使用
+        return self._format_fallback_output(program_title, episode_url, episode_title, program_time)
 
     def _format_bs_special_output(self, driver, program_title: str, channel: str, episode_url: str, episode_title: str) -> str:
         """BSスペシャル用の出力フォーマット"""
-        # BSスペシャルは固定の時間枠を使用
         program_time = f"({channel} 22:45-23:35)"
         return self._format_program_output(
             program_title=program_title,
@@ -127,37 +172,28 @@ class NHKScraper(BaseScraper):
             span_element = WebDriverWait(driver, Constants.Time.DEFAULT_TIMEOUT).until(
                 EC.presence_of_element_located((By.XPATH, Constants.CSSSelector.NHK_PLUS_URL_SPAN))
             )
-            nhk_plus_url = span_element.get_attribute('href')
-            return nhk_plus_url
+            return span_element.get_attribute('href')
         except (NoSuchElementException, TimeoutException):
             return None
 
-    def _process_eyecatch_or_iframe(self, driver, program_title: str, episode_url: str, channel: str, episode_title: str, nhk_plus_url: str | None) -> str | None:
+    #【修正】引数に program_time を追加
+    def _process_eyecatch_or_iframe(self, driver, program_title: str, episode_url: str, episode_title: str, nhk_plus_url: str | None, program_time: str) -> str | None:
         """eyecatch画像またはiframeからURLを取得し、整形された出力文字列を返す"""
         final_url = None
-
-        # 1. eyecatch 画像から URL を試行
         try:
             final_url = self._process_eyecatch_image(driver, program_title, episode_url)
-            if final_url:
-                self.logger.debug(f"eyecatch画像からURL取得成功: {final_url} - {program_title}")
-        except Exception as eyecatch_e:
-            self.logger.debug(f"eyecatch画像処理失敗: {eyecatch_e} - {program_title}, {episode_url}. iframeを試行します。")
+        except Exception:
+            self.logger.debug(f"eyecatch画像処理失敗。iframeを試行します。 - {program_title}")
 
-        # 2. eyecatch が失敗した場合、iframe から URL を試行
         if not final_url:
             try:
                 final_url = self._process_iframe_url(driver, program_title, episode_url)
-                if final_url:
-                    self.logger.debug(f"iframeからURL取得成功: {final_url} - {program_title}")
             except Exception as iframe_e:
-                self.logger.debug(f"iframe URL取得失敗 (正常な状態の可能性あり): {program_title} - {str(iframe_e)}")
-                # final_url は None のまま
+                self.logger.debug(f"iframe URL取得失敗: {str(iframe_e)} - {program_title}")
 
-        # どちらかの方法で final_url が取得できた場合
         if final_url:
             url_to_use = nhk_plus_url if nhk_plus_url else final_url
-            program_time = extract_program_time_info(driver, program_title, episode_url, channel) # ここで時間取得
+            #【修正】program_time は引数で受け取ったものを使用
             formatted_output = self._format_program_output(
                 program_title=program_title,
                 program_time=program_time,
@@ -167,12 +203,11 @@ class NHKScraper(BaseScraper):
             self.logger.info(f"{program_title} の詳細情報を取得しました")
             return formatted_output
 
-        # どちらの方法でも URL を取得できなかった場合
-        self.logger.debug(f"eyecatch/iframe どちらからも有効なURLを取得できませんでした - {program_title}, {episode_url}")
+        self.logger.debug(f"eyecatch/iframe どちらからも有効なURLを取得できませんでした - {program_title}")
         return None
 
     def _process_eyecatch_image(self, driver, program_title: str, episode_url: str) -> str | None:
-        """eyecatch画像からURLを取得する"""
+        # ... (このメソッドは変更なし) ...
         eyecatch_div = WebDriverWait(driver, Constants.Time.DEFAULT_TIMEOUT).until(
             EC.presence_of_element_located((By.CLASS_NAME, Constants.CSSSelector.EYECATCH_IMAGE_DIV))
         )
@@ -183,10 +218,10 @@ class NHKScraper(BaseScraper):
         return driver.current_url
 
     def _process_iframe_url(self, driver, program_title: str, episode_url: str) -> str | None:
-        """iframeからURLを取得する"""
+        # ... (このメソッドは変更なし) ...
         iframe = WebDriverWait(driver, Constants.Time.DEFAULT_TIMEOUT).until(
             EC.presence_of_element_located((By.ID, Constants.CSSSelector.IFRAME_ID))
-        ) # By.ID で検索
+        )
         iframe_src = iframe.get_attribute('src')
         match = re.search(r'/st/(.*?)\?', iframe_src)
         if match:
@@ -197,12 +232,12 @@ class NHKScraper(BaseScraper):
             self.logger.info(f"iframeからURLを生成しました: {final_url} - {program_title}")
             return final_url
         else:
-            self.logger.debug(f"iframeからIDを抽出できませんでした（正常な状態の可能性あり）: {program_title}")
+            self.logger.debug(f"iframeからIDを抽出できませんでした: {program_title}")
             return None
 
-    def _format_fallback_output(self, driver, program_title: str, episode_url: str, channel: str, episode_title: str) -> str:
+    #【修正】引数を変更し、ロジックを簡略化
+    def _format_fallback_output(self, program_title: str, episode_url: str, episode_title: str, program_time: str) -> str:
         """eyecatch, iframe 処理失敗時のフォールバック出力"""
-        program_time = extract_program_time_info(driver, program_title, episode_url, channel)
         return self._format_program_output(
             program_title=program_title,
             program_time=program_time,
