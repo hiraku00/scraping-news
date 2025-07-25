@@ -6,7 +6,6 @@ from datetime import datetime, timedelta
 import sys
 import re
 import json
-import unicodedata
 import logging # logging をインポート
 from common.utils import to_jst_datetime, to_utc_isoformat, extract_time_info_from_text, setup_logger
 
@@ -266,31 +265,43 @@ def save_to_file(formatted_list: list[str], target_date: str):
     except Exception as e:
         logger.error(f"ファイル書き込みエラー: {e}", exc_info=True)
 
+def main(target_date: str) -> bool:
+    """
+    メイン処理を実行する
+    
+    Args:
+        target_date (str): 対象日付 (YYYYMMDD形式)
+        
+    Returns:
+        bool: 処理が成功した場合はTrue、失敗した場合はFalse
+    """
+    try:
+        logger = setup_logger(level=logging.INFO)
+        logger.info("=== get-tweet 処理開始 ===")
+        logger.info(f"対象日付: {target_date}")
+
+        user = "nhk_docudocu"
+        count = 20  # 検索件数 (API上限は100)
+
+        tweets = search_tweets(target_date, user, count)
+
+        if tweets:
+            formatted_list = format_tweet_data(tweets)
+            save_to_file(formatted_list, target_date)
+            logger.info("=== get-tweet 処理完了 ===")
+            return True
+        else:
+            logger.warning("ツイートデータの取得に失敗したか、データがありませんでした。")
+            return False
+    except Exception as e:
+        logger.error(f"エラーが発生しました: {str(e)}", exc_info=True)
+        return False
+
 if __name__ == '__main__':
-    # --- Logger Setup ---
-    # main 関数の最初で一度だけ呼び出す
-    global_logger = setup_logger(level=logging.INFO)
-    # ---------------------
-
     if len(sys.argv) < 2:
-        global_logger.error("日付引数がありません。")
-        print("使用方法: python get-tweet.py YYYYMMDD")
-        exit(1)
+        print("エラー: 日付引数がありません。")
+        print("使用方法: python get_tweet.py YYYYMMDD")
+        sys.exit(1)
+        
     target_date = sys.argv[1]
-    global_logger.info("=== get-tweet 処理開始 ===")
-    global_logger.info(f"対象日付: {target_date}")
-
-    user = "nhk_docudocu" # 定数化推奨
-    count = 20 # 検索件数を少し増やす (API上限は100)
-
-    tweets = search_tweets(target_date, user, count)
-
-    if tweets:
-        # format_tweet_data はリストを返す
-        formatted_list = format_tweet_data(tweets)
-        # save_to_file でファイル保存
-        save_to_file(formatted_list, target_date)
-    else:
-        global_logger.warning("ツイートデータの取得に失敗したか、データがありませんでした。")
-
-    global_logger.info("=== get-tweet 処理終了 ===")
+    sys.exit(0 if main(target_date) else 1)

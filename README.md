@@ -2,17 +2,100 @@
 
 このリポジトリには、NHKとテレビ東京のニュースサイトから情報をスクレイピングし、その結果をX（旧Twitter）に投稿するためのPythonスクリプトが含まれています。スクリプトは、指定された日付のニュース番組情報を取得し、それをXにスレッド形式で投稿します。
 
-## 概要
+## 主な機能
 
-このツールは以下の5つの主要なスクリプトで構成されています。
+- ニュース番組情報のスクレイピング
+- 関連ツイートの取得
+- コンテンツのマージと最適化
+- X（旧Twitter）への投稿
 
-1.  **`scraping-news.py`**: NHKとテレビ東京のウェブサイトからニュース番組情報をスクレイピングします。
-2.  **`get-tweet.py`**: X (旧Twitter) から関連するツイートを検索します。
-3.  **`merge-text.py`**: スクレイピング結果とツイート検索結果をマージします。
-4.  **`split-text.py`**: マージされたテキストをツイート用に分割します。
-5.  **`tweet.py`**: 分割されたテキストを基に、Xにツイートを投稿します。
+## インストール
 
-これらのスクリプトは `common` ディレクトリ内の共通モジュール (`base_scraper.py`, `utils.py`, `constants.py`) を利用します。
+1. リポジトリをクローンします：
+   ```bash
+   git clone [リポジトリURL]
+   cd scraping-news
+   ```
+
+2. 必要なパッケージをインストールします：
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+3. 環境変数を設定します（`.env`ファイルを作成）：
+   ```
+   # X (Twitter) API 認証情報
+   TWITTER_BEARER_TOKEN=your_bearer_token
+   TWITTER_API_KEY=your_api_key
+   TWITTER_API_SECRET=your_api_secret
+   TWITTER_ACCESS_TOKEN=your_access_token
+   TWITTER_ACCESS_TOKEN_SECRET=your_access_token_secret
+   ```
+
+## 使い方
+
+### メインコマンド
+
+```bash
+python main.py [コマンド] [オプション]
+```
+
+### コマンド一覧
+
+#### 全ステップ実行（スクレイピング→ツイート取得→マージ→分割→URLオープン）
+```bash
+python main.py --all [--date YYYYMMDD] [--debug]
+```
+
+#### 個別ステップ実行
+| コマンド | 説明 | 出力ファイル |
+|----------|------|--------------|
+| `python main.py --scrape [--date YYYYMMDD]` | スクレイピングのみ実行 | `output/scraped_YYYYMMDD.txt` |
+| `python main.py --get-tweets [--date YYYYMMDD]` | ツイート取得のみ実行 | `output/tweets_YYYYMMDD.txt` |
+| `python main.py --merge [--date YYYYMMDD]` | マージのみ実行 | `output/merged_YYYYMMDD.txt` |
+| `python main.py --split [--date YYYYMMDD]` | 分割のみ実行 | `output/split_YYYYMMDD.txt` |
+| `python main.py --open [--date YYYYMMDD]` | URLオープンのみ実行 | - |
+| `python main.py --tweet [--date YYYYMMDD]` | ツイート投稿のみ実行 | - |
+
+### オプション
+
+- `--date YYYYMMDD`: 処理する日付を指定（デフォルト: 前日）
+- `--debug`: デバッグモードで実行（詳細なログを表示）
+- `--help`: ヘルプを表示
+
+### 実行例
+
+#### 通常の実行（前日のデータを処理）
+```bash
+# 全ステップ実行（ツイート投稿は除く）
+python main.py --all
+
+# 個別に実行する場合
+python main.py --scrape
+python main.py --get-tweets
+python main.py --merge
+python main.py --split
+python main.py --open
+
+# ツイートを投稿する場合
+python main.py --tweet
+```
+
+#### 特定の日付を処理
+```bash
+# 2025年7月25日のデータを処理
+python main.py --all --date 20250725
+
+# 特定のステップのみ実行
+python main.py --scrape --date 20250725
+python main.py --tweet --date 20250725
+```
+
+#### デバッグモード
+```bash
+# デバッグ情報を表示しながら実行
+python main.py --all --debug
+```
 
 ## スクリプトの詳細
 
