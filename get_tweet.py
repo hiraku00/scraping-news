@@ -285,14 +285,19 @@ def main(target_date: str) -> bool:
 
         tweets = search_tweets(target_date, user, count)
 
-        if tweets:
-            formatted_list = format_tweet_data(tweets)
-            save_to_file(formatted_list, target_date)
-            logger.info("=== get-tweet 処理完了 ===")
-            return True
-        else:
-            logger.warning("ツイートデータの取得に失敗したか、データがありませんでした。")
+        if not tweets:
+            logger.warning("ツイートデータがありません。")
+            return None
+            
+        formatted_list = format_tweet_data(tweets)
+        if not formatted_list:
+            logger.warning("ツイートデータのフォーマットに失敗しました。")
             return False
+            
+        save_to_file(formatted_list, target_date)
+        logger.info("=== get-tweet 処理完了 ===")
+        return True
+        
     except Exception as e:
         logger.error(f"エラーが発生しました: {str(e)}", exc_info=True)
         return False
