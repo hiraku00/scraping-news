@@ -350,22 +350,36 @@ def run_open_urls(target_date: str) -> bool:
 
 def run_tweet(target_date: str) -> bool:
     """ツイートを投稿します。"""
-    logger.info(f"Posting tweets for date: {target_date}")
+    logger.info(f"=== tweet 処理開始 ===")
+    logger.info(f"対象日付: {target_date}")
+    
     try:
         from tweet import main as tweet_main
         
-        split_file = get_output_file("split", target_date)
+        # ファイルパスを output/YYYYMMDD.txt に修正
+        tweet_file = os.path.join("output", f"{target_date}.txt")
         
-        if not os.path.exists(split_file):
-            logger.error(f"Split file not found: {split_file}")
+        if not os.path.exists(tweet_file):
+            logger.error(f"ファイル {tweet_file} が見つかりません。")
             return False
         
         # モジュールのmain関数を直接呼び出す
-        sys.argv = ['tweet.py', split_file]
-        tweet_main()
-        return True
+        # tweet.py は日付(YYYYMMDD)を引数として受け取る
+        sys.argv = ['tweet.py', target_date]
+        
+        # ロガーのレベルを一時的に変更して詳細なログを表示
+        original_level = logger.level
+        logger.setLevel(logging.INFO)
+        
+        try:
+            tweet_main()
+            return True
+        finally:
+            # 元のログレベルに戻す
+            logger.setLevel(original_level)
+            
     except Exception as e:
-        logger.error(f"Tweet posting failed: {str(e)}")
+        logger.error(f"ツイート投稿中にエラーが発生しました: {str(e)}", exc_info=True)
         return False
 
 

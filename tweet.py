@@ -248,7 +248,8 @@ def post_tweet_with_retry(client, text, in_reply_to_tweet_id=None, max_retries=3
     logger.error("ツイート投稿のリトライ上限回数に達しました。")
     return None
 
-if __name__ == "__main__":
+def main():
+    """メイン処理を実行する関数"""
     # --- Logger Setup ---
     global_logger = setup_logger(level=logging.INFO)
     # ---------------------
@@ -256,7 +257,7 @@ if __name__ == "__main__":
     # 環境変数チェック
     if not all([API_KEY, API_SECRET, ACCESS_TOKEN, ACCESS_SECRET, BEARER_TOKEN]):
         global_logger.critical("❌ 必要な環境変数が正しく設定されていません。処理を終了します。")
-        sys.exit(1)
+        return 1
     else:
         global_logger.info("APIキー/トークン環境変数を読み込みました。")
 
@@ -274,16 +275,16 @@ if __name__ == "__main__":
         global_logger.info(f"✅ Twitter API認証成功: @{user_info.data.username}")
     except tweepy.errors.Unauthorized as e:
         global_logger.critical(f"❌ Twitter API認証失敗: {e}")
-        sys.exit(1)
+        return 1
     except Exception as e:
         global_logger.critical(f"❌ Twitter APIクライアント作成または認証チェック中にエラー: {e}", exc_info=True)
-        sys.exit(1)
+        return 1
 
     # コマンドライン引数
     if len(sys.argv) < 2:
         global_logger.error("日付引数がありません。")
         print("使用方法: python tweet.py <日付 (例: 20250129)>")
-        sys.exit(1)
+        return 1
 
     date = sys.argv[1]
     global_logger.info("=== tweet 処理開始 ===")
@@ -298,14 +299,14 @@ if __name__ == "__main__":
         global_logger.info(f"ファイル {file_path} から {len(tweets_to_post)} 件のツイート候補を読み込みました。")
         if not tweets_to_post:
             global_logger.warning("ファイルが空か、有効なツイート候補がありません。")
-            sys.exit(0) # 正常終了
+            return 0  # 正常終了
     except FileNotFoundError:
         global_logger.error(f"ファイル {file_path} が見つかりません。")
         print(f"エラー: {file_path} が見つかりません。")
-        sys.exit(1)
+        return 1
     except Exception as e:
         global_logger.error(f"ファイル読み込みエラー: {e}", exc_info=True)
-        sys.exit(1)
+        return 1
 
     # ヘッダーの作成
     header_text = get_header_text(date)
@@ -317,21 +318,20 @@ if __name__ == "__main__":
         # 最初のツイートにヘッダーを追加
         first_tweet_text = header_text + tweets_to_post[0]
 
-
     global_logger.info(f"最初のツイートを投稿します...")
     # post_tweet_with_retry は内部でロガーを使用
     thread_start_id = post_tweet_with_retry(client, text=first_tweet_text)
 
     if not thread_start_id:
         global_logger.error("最初のツイート投稿に失敗したため、処理を終了します。")
-        sys.exit(1)
+        return 1
 
     # 2つ目以降のツイートをスレッドとして投稿
     last_tweet_id = thread_start_id
-    post_count = 1 # 最初のツイートをカウント
+    post_count = 1  # 最初のツイートをカウント
     for i, text in enumerate(tweets_to_post[1:]):
         # 投稿間に適切な待機時間を設ける (APIルール遵守とアカウント保護のため)
-        wait_seconds = 5 # 基本待機時間 (定数化推奨)
+        wait_seconds = 5  # 基本待機時間 (定数化推奨)
         global_logger.info(f"{wait_seconds}秒待機...")
         time.sleep(wait_seconds)
 
@@ -339,10 +339,14 @@ if __name__ == "__main__":
         new_tweet_id = post_tweet_with_retry(client, text=text, in_reply_to_tweet_id=last_tweet_id)
 
         if new_tweet_id:
-            last_tweet_id = new_tweet_id # 次の返信先を更新
+            last_tweet_id = new_tweet_id  # 次の返信先を更新
             post_count += 1
         else:
             global_logger.error(f"{i+2}番目のツイート投稿に失敗しました。以降の投稿を中止します。")
-            break # 失敗したらループを抜ける
+            break  # 失敗したらループを抜ける
 
     global_logger.info(f"=== tweet 処理終了 ({post_count}/{len(tweets_to_post)} 件投稿) ===")
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main())
