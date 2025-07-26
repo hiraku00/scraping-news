@@ -138,21 +138,36 @@ def run_scrape(target_date: str) -> bool:
         return False
 
 
-def get_tweets(target_date: str) -> bool:
-    """ツイートを取得する"""
+def get_tweets(target_date: str) -> Optional[bool]:
+    """ツイートを取得する
+    
+    Args:
+        target_date: 処理対象の日付 (YYYYMMDD形式)
+        
+    Returns:
+        bool: 成功した場合はTrue、エラーが発生した場合はFalseを返す
+        None: ツイートデータが存在しない場合
+    """
     logger.info("=== ツイート取得を開始します ===")
     logger.info(f"Fetching tweets for date: {target_date}")
     
     try:
         # 直接get_tweet.pyのmain関数を呼び出す
         from get_tweet import main as get_tweet_main
-        success = get_tweet_main(target_date)
-        if not success:
-            logger.error("ツイート取得に失敗しました")
+        result = get_tweet_main(target_date)
+        
+        if result is None:
+            logger.info("ツイートデータが存在しないためスキップします")
+            return None
+        elif result is False:
+            logger.error("ツイート取得中にエラーが発生しました")
             return False
+            
+        logger.info("ツイートの取得が完了しました")
         return True
+        
     except Exception as e:
-        logger.error(f"Tweet fetching failed: {str(e)}")
+        logger.error(f"ツイート取得中に予期せぬエラーが発生しました: {str(e)}")
         logger.error(traceback.format_exc())
         return False
 
@@ -427,22 +442,49 @@ def main() -> int:
     
     try:
         if args.all:
-            # 全ステップ実行
-            steps = [
-                (run_scrape, "スクレイピング"),
-                (get_tweets, "ツイート取得"),
-                (run_merge, "マージ"),
-                (run_split, "分割"),
-                (run_open_urls, "URLオープン")
-            ]
+            # スクレイピング実行
+            logger.info("=== スクレイピングを開始します ===")
+            if not run_scrape(target_date):
+                logger.error("スクレイピングに失敗しました")
+                success = False
+            else:
+                logger.info("=== スクレイピングが完了しました ===\n")
             
-            for step_func, step_name in steps:
-                logger.info(f"=== {step_name}を開始します ===")
-                if not step_func(target_date):
-                    logger.error(f"{step_name}に失敗しました")
+            # ツイート取得実行（失敗しても処理は続行）
+            logger.info("=== ツイート取得を開始します ===")
+            tweets_result = get_tweets(target_date)
+            if tweets_result is False:  # エラーのみ処理を中断
+                logger.error("ツイート取得に失敗しました")
+                success = False
+            else:
+                logger.info("=== ツイート取得が完了しました ===\n")
+            
+            # マージ実行（ツイートデータがあればマージ）
+            logger.info("=== マージを開始します ===")
+            if tweets_result is True:  # ツイートデータがある場合のみマージ
+                if not run_merge(target_date):
+                    logger.error("マージに失敗しました")
                     success = False
-                    break
-                logger.info(f"=== {step_name}が完了しました ===\n")
+                else:
+                    logger.info("=== マージが完了しました ===\n")
+            else:
+                logger.info("マージ対象のツイートデータがないためスキップします\n")
+            
+            # 分割実行
+            logger.info("=== 分割を開始します ===")
+            if not run_split(target_date):
+                logger.error("分割に失敗しました")
+                success = False
+            else:
+                logger.info("=== 分割が完了しました ===\n")
+            
+            # URLオープン実行
+            logger.info("=== URLオープンを開始します ===")
+            if not run_open_urls(target_date):
+                logger.error("URLオープンに失敗しました")
+                success = False
+            else:
+                logger.info("=== URLオープンが完了しました ===\n")
         
         # 個別のアクション
         elif args.scrape:
