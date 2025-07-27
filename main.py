@@ -112,18 +112,6 @@ def get_target_date(date_str: Optional[str] = None) -> str:
     return yesterday.strftime("%Y%m%d")
 
 
-def get_output_file(prefix: str, date_str: str) -> str:
-    """出力ファイルのパスを生成します。"""
-    # scraping_news.py の出力形式に合わせる
-    if prefix == "scraped":
-        return os.path.join(OUTPUT_DIR, f"{date_str}.txt")
-    # tweet.py の出力形式に合わせる
-    elif prefix == "tweets":
-        return os.path.join(OUTPUT_DIR, f"{date_str}_tweet.txt")
-    # その他の場合は従来通り
-    return os.path.join(OUTPUT_DIR, f"{prefix}_{date_str}.txt")
-
-
 def run_scrape(target_date: str) -> bool:
     """スクレイピングを実行します。"""
     logger.info(f"Running scraping for date: {target_date}")
@@ -470,14 +458,14 @@ def main() -> int:
             else:
                 logger.info("マージ対象のツイートデータがないためスキップします\n")
             
-            # 分割実行
+            # 分割実行（マージされたファイルを分割）
             logger.info("=== 分割を開始します ===")
             if not run_split(target_date):
-                logger.error("分割に失敗しました")
+                logger.error("テキスト分割に失敗しました")
                 success = False
             else:
                 logger.info("=== 分割が完了しました ===\n")
-            
+                
             # URLオープン実行
             logger.info("=== URLオープンを開始します ===")
             if not run_open_urls(target_date):
