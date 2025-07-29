@@ -366,16 +366,13 @@ def run_tweet(target_date: str) -> bool:
             logger.error(f"ファイル {tweet_file} が見つかりません。")
             return False
         
-        # モジュールのmain関数を直接呼び出す
-        # tweet.py は日付(YYYYMMDD)を引数として受け取る
-        sys.argv = ['tweet.py', target_date]
-        
         # ロガーのレベルを一時的に変更して詳細なログを表示
         original_level = logger.level
         logger.setLevel(logging.INFO)
         
         try:
-            tweet_main()
+            # tweet.main() を直接呼び出し、日付を引数として渡す
+            tweet_main(target_date)
             return True
         finally:
             # 元のログレベルに戻す

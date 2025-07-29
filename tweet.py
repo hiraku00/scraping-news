@@ -248,8 +248,13 @@ def post_tweet_with_retry(client, text, in_reply_to_tweet_id=None, max_retries=3
     logger.error("ツイート投稿のリトライ上限回数に達しました。")
     return None
 
-def main():
-    """メイン処理を実行する関数"""
+def main(date=None):
+    """メイン処理を実行する関数
+    
+    Args:
+        date (str, optional): 処理対象の日付 (YYYYMMDD形式)。
+                             指定がない場合はコマンドライン引数から取得します。
+    """
     # --- Logger Setup ---
     global_logger = setup_logger(level=logging.INFO)
     # ---------------------
@@ -280,13 +285,14 @@ def main():
         global_logger.critical(f"❌ Twitter APIクライアント作成または認証チェック中にエラー: {e}", exc_info=True)
         return 1
 
-    # コマンドライン引数
-    if len(sys.argv) < 2:
-        global_logger.error("日付引数がありません。")
-        print("使用方法: python tweet.py <日付 (例: 20250129)>")
-        return 1
-
-    date = sys.argv[1]
+    # 日付の取得
+    if date is None:
+        # コマンドライン引数から日付を取得
+        if len(sys.argv) < 2:
+            global_logger.error("日付引数がありません。")
+            print("使用方法: python tweet.py <日付 (例: 20250129)>")
+            return 1
+        date = sys.argv[1]
     global_logger.info("=== tweet 処理開始 ===")
     global_logger.info(f"対象日付: {date}")
 
