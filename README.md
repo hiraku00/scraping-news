@@ -25,11 +25,11 @@
 3. 環境変数を設定します（`.env`ファイルを作成）：
    ```
    # X (Twitter) API 認証情報
-   TWITTER_BEARER_TOKEN=your_bearer_token
-   TWITTER_API_KEY=your_api_key
-   TWITTER_API_SECRET=your_api_secret
-   TWITTER_ACCESS_TOKEN=your_access_token
-   TWITTER_ACCESS_TOKEN_SECRET=your_access_token_secret
+   BEARER_TOKEN=your_bearer_token
+   API_KEY=your_api_key
+   API_SECRET=your_api_secret
+   ACCESS_TOKEN=your_access_token
+   ACCESS_SECRET=your_access_token_secret
    ```
 
 ## 使い方
@@ -55,7 +55,7 @@ python main.py --all [--date YYYYMMDD] [--debug]
 | `python main.py --merge [--date YYYYMMDD]` | マージのみ実行 | `output/merged_YYYYMMDD.txt` |
 | `python main.py --split [--date YYYYMMDD]` | 分割のみ実行 | `output/split_YYYYMMDD.txt` |
 | `python main.py --open [--date YYYYMMDD]` | URLオープンのみ実行 | - |
-| `python main.py --tweet [--date YYYYMMDD]` | ツイート投稿のみ実行 | - |
+| `python main.py --tweet [--date YYYYMMDD]` | ツイート投稿のみ実行。`output/YYYYMMDD.txt`の内容をツイートします。複数のツイートがある場合はスレッド形式で投稿されます。 | - |
 
 ### オプション
 
@@ -96,6 +96,36 @@ python main.py --tweet --date 20250725
 # デバッグ情報を表示しながら実行
 python main.py --all --debug
 ```
+
+## スクリプトの詳細
+
+### tweet.py
+
+このスクリプトは、指定された日付のテキストファイルを読み込み、X（旧Twitter）に投稿します。
+
+#### 主な機能
+- テキストファイルの内容をツイートに変換
+- 複数のツイートをスレッド形式で投稿
+- レート制限を考慮したリトライ処理
+
+#### 使用方法
+```bash
+# 直接実行する場合
+python tweet.py YYYYMMDD
+
+# 例: 2025年7月28日のツイートを投稿
+python tweet.py 20250728
+```
+
+#### 入力ファイル
+- `output/YYYYMMDD.txt`
+  - 改行2つでツイートを区切ります
+  - 1つ目のツイートには自動的にヘッダーが追加されます
+
+#### エラーハンドリング
+- ファイルが存在しない場合はエラーを表示して終了
+- ツイートの投稿に失敗した場合は最大3回までリトライ
+- レート制限に達した場合は自動的に待機
 
 ## スクリプトの詳細
 
