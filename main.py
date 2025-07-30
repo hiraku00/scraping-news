@@ -351,16 +351,24 @@ def run_open_urls(target_date: str) -> bool:
         return False
 
 
-def run_tweet(target_date: str) -> bool:
-    """ツイートを投稿します。"""
+def run_tweet(target_date: str, output_dir: str = "output") -> bool:
+    """ツイートを投稿します。
+    
+    Args:
+        target_date (str): ツイート対象の日付 (YYYYMMDD形式)
+        output_dir (str, optional): 出力ディレクトリのパス。デフォルトは"output"。
+        
+    Returns:
+        bool: ツイートが成功した場合はTrue、それ以外はFalse
+    """
     logger.info(f"=== tweet 処理開始 ===")
     logger.info(f"対象日付: {target_date}")
     
     try:
         from tweet import main as tweet_main
         
-        # ファイルパスを output/YYYYMMDD.txt に修正
-        tweet_file = os.path.join("output", f"{target_date}.txt")
+        # ファイルパスを {output_dir}/YYYYMMDD.txt に修正
+        tweet_file = os.path.join(output_dir, f"{target_date}.txt")
         
         if not os.path.exists(tweet_file):
             logger.error(f"ファイル {tweet_file} が見つかりません。")
@@ -371,8 +379,8 @@ def run_tweet(target_date: str) -> bool:
         logger.setLevel(logging.INFO)
         
         try:
-            # tweet.main() を直接呼び出し、日付を引数として渡す
-            tweet_main(target_date)
+            # tweet.main() を直接呼び出し、日付と出力ディレクトリを引数として渡す
+            tweet_main(date=target_date, output_dir=output_dir)
             return True
         finally:
             # 元のログレベルに戻す
