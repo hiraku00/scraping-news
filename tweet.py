@@ -8,8 +8,33 @@ import logging # logging をインポート
 from common.constants import TWEET_MAX_LENGTH, get_header_text
 from common.utils import count_tweet_length, setup_logger
 
-# --- モジュールレベルのロガーを取得 ---
-logger = logging.getLogger(__name__)
+# --- ロギング設定 ---
+def setup_logging():
+    """ロギングの設定を行う"""
+    # ルートロガーを取得
+    logger = logging.getLogger()
+    
+    # 既存のハンドラをクリア
+    logger.handlers = []
+    
+    # ログレベルの設定
+    logger.setLevel(logging.INFO)
+    
+    # コンソールハンドラの設定
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    
+    # フォーマッタの設定
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    console_handler.setFormatter(formatter)
+    
+    # ハンドラを追加
+    logger.addHandler(console_handler)
+    
+    return logger
+
+# ロガーの初期化
+logger = setup_logging()
 
 # 環境変数の読み込み
 load_dotenv()
@@ -248,12 +273,13 @@ def post_tweet_with_retry(client, text, in_reply_to_tweet_id=None, max_retries=3
     logger.error("ツイート投稿のリトライ上限回数に達しました。")
     return None
 
-def main(date=None):
+def main(date=None, output_dir="output"):
     """メイン処理を実行する関数
     
     Args:
         date (str, optional): 処理対象の日付 (YYYYMMDD形式)。
                              指定がない場合はコマンドライン引数から取得します。
+        output_dir (str, optional): 出力ディレクトリのパス。デフォルトは"output"。
     """
     # --- Logger Setup ---
     global_logger = setup_logger(level=logging.INFO)
@@ -296,7 +322,9 @@ def main(date=None):
     global_logger.info("=== tweet 処理開始 ===")
     global_logger.info(f"対象日付: {date}")
 
-    file_path = f"output/{date}.txt"
+    # 出力ディレクトリが存在しない場合は作成
+    os.makedirs(output_dir, exist_ok=True)
+    file_path = os.path.join(output_dir, f"{date}.txt")
 
     try:
         with open(file_path, "r", encoding="utf-8") as file:
@@ -324,31 +352,44 @@ def main(date=None):
         # 最初のツイートにヘッダーを追加
         first_tweet_text = header_text + tweets_to_post[0]
 
-    global_logger.info(f"最初のツイートを投稿します...")
-    # post_tweet_with_retry は内部でロガーを使用
+    # 最初のツイートを投稿
+    global_logger.info("=" * 50)
+    global_logger.info("📢 ツイートを開始します")
+    global_logger.info("-" * 50)
+    global_logger.info(f"📝 1/{len(tweets_to_post)} 件目のツイート内容:")
+    global_logger.info(first_tweet_text)
+    global_logger.info("-" * 50)
+    
     thread_start_id = post_tweet_with_retry(client, text=first_tweet_text)
 
     if not thread_start_id:
-        global_logger.error("最初のツイート投稿に失敗したため、処理を終了します。")
+        global_logger.error("❌ 最初のツイート投稿に失敗したため、処理を終了します。")
         return 1
+    else:
+        global_logger.info(f"✅ 1/{len(tweets_to_post)} 件目のツイートを投稿しました (ID: {thread_start_id})")
 
     # 2つ目以降のツイートをスレッドとして投稿
     last_tweet_id = thread_start_id
     post_count = 1  # 最初のツイートをカウント
-    for i, text in enumerate(tweets_to_post[1:]):
+    for i, text in enumerate(tweets_to_post[1:], 2):
         # 投稿間に適切な待機時間を設ける (APIルール遵守とアカウント保護のため)
         wait_seconds = 5  # 基本待機時間 (定数化推奨)
-        global_logger.info(f"{wait_seconds}秒待機...")
+        global_logger.info(f"⏳ 次のツイートまで {wait_seconds} 秒待機します...")
         time.sleep(wait_seconds)
 
-        global_logger.info(f"{i+2}番目のツイートを投稿します (返信先: {last_tweet_id})...")
+        global_logger.info("-" * 50)
+        global_logger.info(f"📝 {i}/{len(tweets_to_post)} 件目のツイート内容 (返信先: {last_tweet_id}):")
+        global_logger.info(text)
+        global_logger.info("-" * 50)
+        
         new_tweet_id = post_tweet_with_retry(client, text=text, in_reply_to_tweet_id=last_tweet_id)
 
         if new_tweet_id:
             last_tweet_id = new_tweet_id  # 次の返信先を更新
             post_count += 1
+            global_logger.info(f"✅ {i}/{len(tweets_to_post)} 件目のツイートを投稿しました (ID: {new_tweet_id})")
         else:
-            global_logger.error(f"{i+2}番目のツイート投稿に失敗しました。以降の投稿を中止します。")
+            global_logger.error(f"❌ {i}/{len(tweets_to_post)} 件目のツイート投稿に失敗しました。以降の投稿を中止します。")
             break  # 失敗したらループを抜ける
 
     global_logger.info(f"=== tweet 処理終了 ({post_count}/{len(tweets_to_post)} 件投稿) ===")
