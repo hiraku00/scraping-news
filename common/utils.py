@@ -68,10 +68,12 @@ class Constants:
         STREAM_PANEL_INFO_META = "stream_panel--info--meta" # このセレクタは古い可能性がある
 
         # --- TV Tokyo ---
-        TVTOKYO_VIDEO_ITEM = 'div[id^="News_Detail__VideoItem__"]'
-        TVTOKYO_DATE_SPAN = 'span.sc-c564813-0.iCkNIF[role="presentation"]'
-        TVTOKYO_POST_LINK = 'a[href*="post_"]'
-        TVTOKYO_EPISODE_TITLE = "Live_Episode_Detail_EpisodeItemFullTitle"
+        # エピソード要素（各番組のURLパターンに対応）
+        TVTOKYO_VIDEO_ITEM = 'div[role="presentation"][class*="css-"][href*="/nms/special/post_"], div[role="presentation"][class*="css-"][href*="/wbs/feature/post_"], div[role="presentation"][class*="css-"][href*="/wbs/trend_tamago/"], div[role="presentation"][class*="css-"][href*="/gaia/"], div[role="presentation"][class*="css-"][href*="/cambria/"]'
+        TVTOKYO_DATE_SPAN = 'span[class*="iCkNIF"][role="presentation"][color="#C4C4C4"]:not(.play_time)'
+        # リンク要素（各番組のURLパターンに対応）
+        TVTOKYO_POST_LINK = 'a[href*="/nms/special/post_"], a[href*="/wbs/feature/post_"], a[href*="/wbs/trend_tamago/"], a[href*="/gaia/"], a[href*="/cambria/"]'
+        TVTOKYO_EPISODE_TITLE = 'div[class*="item_title"][title]'
 
 # --- logging.basicConfig の呼び出しを削除 ---
 # logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s') # ★削除
