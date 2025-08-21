@@ -352,20 +352,21 @@ class TVTokyoScraper(BaseScraper):
                     )
                 except TimeoutException:
                     self.logger.warning(f"{program_name} のエピソードリスト要素が見つかりませんでした（タイムアウト） - {target_url}")
-                    continue # 次のURLへ
+                    continue  # 次のURLへ
 
                 # 動的コンテンツ（特に日付やリンク情報）が読み込まれるのを待機
                 # リストの最後の要素が 'visibility' (表示状態) になるまで待つ
                 try:
                     # 最後の要素を取得するCSSセレクタ :last-child を使用
                     last_item_selector = f"{Constants.CSSSelector.TVTOKYO_VIDEO_ITEM}:last-child"
-                    WebDriverWait(driver, Constants.Time.SHORT_TIMEOUT).until( # 少し短めのタイムアウトで試行
+                    WebDriverWait(driver, Constants.Time.SHORT_TIMEOUT).until(  # 少し短めのタイムアウトで試行
                         EC.visibility_of_element_located((By.CSS_SELECTOR, last_item_selector))
                     )
-                    self.logger.debug(f"リストの最後の要素が表示されるのを待機完了 - {program_name} - {target_url}")
                 except TimeoutException:
                     # タイムアウトしても、要素が取得できる可能性はあるため、警告に留めて処理を続行
-                    self.logger.warning(f"リストの最後の要素の表示待機中にタイムアウトしましたが、処理を続行します - {program_name} - {target_url}")
+                    self.logger.warning(
+                        f"リストの最後の要素の表示待機中にタイムアウトしましたが、処理を続行します - {program_name} - {target_url}"
+                    )
 
                 episode_elements = driver.find_elements(By.CSS_SELECTOR, Constants.CSSSelector.TVTOKYO_VIDEO_ITEM)
                 if not episode_elements:
@@ -383,28 +384,67 @@ class TVTokyoScraper(BaseScraper):
 
                         date_element = date_elements[0]
                         date_text = date_element.text.strip()
+                        self.logger.debug(f"抽出された日付テキスト: '{date_text}' (対象日付: {formatted_date})")
 
                         # 日付のマッチング確認
-                        is_matching_date = (
-                            ("今日" in date_text and formatted_today == formatted_date) or
-                            ("昨日" in date_text and formatted_yesterday == formatted_date) or
-                            date_text == formatted_date # "MM月DD日" 形式
-                        )
+                        is_matching_date = False
+
+                        try:
+                            # 相対日付のチェック
+                            if "今日" in date_text and formatted_today == formatted_date:
+                                is_matching_date = True
+                                self.logger.debug("今日の日付と一致しました")
+                            elif "昨日" in date_text and formatted_yesterday == formatted_date:
+                                is_matching_date = True
+                                self.logger.debug("昨日の日付と一致しました")
+                            # 絶対日付のチェック（YYYY.MM.DD形式）
+                            elif date_text == formatted_date:
+                                is_matching_date = True
+                                self.logger.debug("絶対日付と一致しました")
+                            # 日付形式の変換を試行（MM.DD形式の場合）
+                            elif len(date_text.split('.')) == 2:
+                                try:
+                                    month, day = date_text.split('.')
+                                    current_year = datetime.now().year
+                                    converted_date = f"{current_year}.{month.zfill(2)}.{day.zfill(2)}"
+                                    self.logger.debug(f"変換された日付: {converted_date}")
+                                    if converted_date == formatted_date:
+                                        is_matching_date = True
+                                        self.logger.debug("変換後の日付が一致しました")
+                                except Exception as e:
+                                    self.logger.debug(f"日付変換中にエラーが発生しました: {e}")
+
+                            if not is_matching_date:
+                                self.logger.debug(f"日付が一致しませんでした: テキスト='{date_text}', 対象日付='{formatted_date}'")
+
+                        except Exception as e:
+                            self.logger.error(f"日付マッチング中にエラーが発生しました: {e}")
 
                         if is_matching_date:
                             try:
-                                link_element = episode.find_element(By.CSS_SELECTOR, Constants.CSSSelector.TVTOKYO_POST_LINK)
+                                self.logger.debug("一致する日付のエピソードが見つかりました。リンクを検索中...")
+                                link_element = episode.find_element(
+                                    By.CSS_SELECTOR, Constants.CSSSelector.TVTOKYO_POST_LINK
+                                )
                                 link = link_element.get_attribute("href")
                                 if link:
+                                    # URLの形式をバリデーション
+                                    valid_url = self._validate_program_url(link, program_name)
+                                    if not valid_url:
+                                        continue
+                                    self.logger.debug(f"見つかったリンク: {link}")
                                     urls_found_on_page.append(link)
                                 else:
                                     self.logger.debug(f"リンクURLが空でした - {program_name} - {target_url}")
                             except NoSuchElementException:
                                 self.logger.debug(f"リンク要素が見つかりませんでした - {program_name} - {target_url}")
+                                # エピソード要素のHTMLをデバッグ出力
+                                try:
+                                    episode_html = episode.get_attribute('outerHTML')
+                                    self.logger.debug(f"エピソード要素のHTML: {episode_html[:500]}...")  # 最初の500文字だけ表示
+                                except Exception as e:
+                                    self.logger.error(f"エピソード要素のHTML取得中にエラーが発生しました: {e}")
 
-                    except StaleElementReferenceException:
-                        self.logger.warning(f"要素が無効になりました。リトライまたはスキップします - {program_name} - {target_url}")
-                        break # このページの処理を中断して次のURLへ行く方が安全か
                     except Exception as e_inner:
                         self.logger.error(f"エピソード解析中に予期せぬエラー: {e_inner} - {program_name} - {target_url}", exc_info=True)
 
@@ -422,24 +462,110 @@ class TVTokyoScraper(BaseScraper):
         self.logger.debug(f"最終的に抽出されたユニークなエピソードURL: {program_name} - {unique_urls}")
         return unique_urls
 
+    def _validate_program_url(self, url: str, program_name: str) -> bool:
+        """URLが番組のバリデーションルールを満たしているかチェック"""
+        # 各番組のURL判定
+        program_patterns = {
+            "カンブリア宮殿": ("/cambria/", "/cambria/oa/", "/cambria/vod/"),
+            "WBS": ("/wbs/", None, None),
+            "モーサテ": ("/nms/", None, None),
+            "ガイアの夜明け": ("/gaia/", "/gaia/oa/", "/gaia/vod/"),
+        }
+
+        # URLに含まれる番組パターンをチェック
+        current_pattern = None
+        detected_program = None
+        for prog, (base, oa, vod) in program_patterns.items():
+            if base and base in url:
+                detected_program = prog
+                current_pattern = (base, oa, vod)
+                break
+
+        if not current_pattern:
+            return True  # 特定のパターンに該当しない場合は許可
+
+        # URLが別の番組のものである場合は除外
+        if detected_program != program_name:
+            self.logger.warning(f"他番組の記事をスキップ: {url} (期待:{program_name}, 検出:{detected_program})")
+            return False
+
+        # /oa/と/vod/の処理
+        if current_pattern[1]:  # oa_patternが存在する場合
+            if current_pattern[2] in url:  # vodを含む場合は除外
+                self.logger.warning(f"{program_name}のVOD URLをスキップ: {url}")
+                return False
+            if current_pattern[1] not in url:  # oaを含まない場合も除外
+                self.logger.warning(f"{program_name}の不正なURL形式をスキップ: {url}")
+                return False
+
+        return True
+
+    def _get_program_url_pattern(self, program_name: str) -> str | None:
+        """番組固有のURLパターンを返す"""
+        patterns = {
+            "WBS": "/wbs/",
+            "モーサテ": "/nms/",
+            "ガイアの夜明け": "/gaia/",
+        }
+        return patterns.get(program_name)
+
     def _fetch_tvtokyo_episode_details(self, driver, episode_url: str, program_name: str) -> tuple[str | None, str | None]:
         """テレビ東京のエピソード詳細情報を取得する"""
         try:
+            # URLの形式をバリデーション
+            valid_url = self._validate_program_url(episode_url, program_name)
+            if not valid_url:
+                return None, None
             driver.get(episode_url)
-            # タイトル要素が表示されるまで待機
-            try:
-                title_element = WebDriverWait(driver, Constants.Time.DEFAULT_TIMEOUT).until(
-                    EC.presence_of_element_located((By.ID, Constants.CSSSelector.TVTOKYO_EPISODE_TITLE))
-                )
-                title = title_element.text.strip()
-                if not title: # タイトルが空の場合も考慮
-                    self.logger.warning(f"エピソードタイトルが空でした - {program_name} - {episode_url}")
-                    return None, episode_url # URLは返す
-                self.logger.debug(f"エピソード詳細情報を取得しました: {program_name} - {title}")
-                return title, episode_url
-            except TimeoutException:
-                self.logger.error(f"エピソードタイトル要素が見つかりませんでした（タイムアウト） - {program_name} - {episode_url}")
-                return None, None # タイトルが見つからない場合は失敗扱い
+            # ページが完全に読み込まれるまで待機
+            time.sleep(2)
+
+            # 複数のタイトルセレクタを試行（優先順位順）
+            title_selectors = [
+                '[class*="episode"]',  # エピソード要素（最優先）
+                'h1[class*="title"]',  # メインタイトル
+                'div[class*="title"]',  # タイトルdiv
+                'span[class*="title"]',  # タイトルspan
+                'h2[class*="title"]',   # サブタイトル
+                '[class*="episode_title"]',  # エピソードタイトル
+                '[class*="article_title"]',  # 記事タイトル
+                'h1',  # 一般的なh1
+                'h2',  # 一般的なh2
+                # カンブリア宮殿専用セレクタ（広告テキストを除外）
+                'div:not([class*="ad"]):not([class*="banner"]):not([class*="promo"])',
+            ]
+
+            title = None
+            for selector in title_selectors:
+                try:
+                    title_elements = driver.find_elements(By.CSS_SELECTOR, selector)
+                    for element in title_elements:
+                        # テキストを取得
+                        text = element.text.strip()
+                        if text and len(text) > 5:  # 意味のある長さのテキスト
+                            # 最初の行のみを取得（改行で分割）
+                            lines = text.split('\n')
+                            title = lines[0].strip()
+                            if title and len(title) > 5:
+                                # 広告テキストを除外
+                                if any(ad_text in title.lower() for ad_text in ['無料登録', '今すぐ', 'ログイン', '登録', 'ミュートを解除']):
+                                    continue
+                                # より確実なタイトル判定（長いタイトルを優先）
+                                if len(title) > 10 and not title.startswith('ミュート'):
+                                    self.logger.debug(f"タイトルを取得しました ({selector}): {title}")
+                                    break
+                    if title:
+                        break
+                except Exception as e:
+                    self.logger.debug(f"セレクタ {selector} でタイトル取得に失敗: {e}")
+                    continue
+
+            if not title:
+                self.logger.warning(f"エピソードタイトルが見つかりませんでした - {program_name} - {episode_url}")
+                return None, episode_url
+
+            self.logger.debug(f"エピソード詳細情報を取得しました: {program_name} - {title}")
+            return title, episode_url
 
         except Exception as e:
             self.logger.error(f"エピソード詳細取得エラー: {e} - {program_name}, {episode_url}", exc_info=True)
