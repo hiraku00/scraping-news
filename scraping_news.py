@@ -84,47 +84,80 @@ class NHKScraper(BaseScraper):
                 return self.episode_processor.extract_episode_url(episode, program_title)
         return None
 
-    #【新設】JSON-LDから放送時間を抽出するメソッド
     def _extract_time_from_json_ld(self, driver) -> Optional[str]:
-        """エピソード詳細ページのJSON-LDから放送時間を抽出する。"""
+        """エピソード詳細ページのJSON-LDから放送時間を抽出する。
+
+        複数の放送時間が存在する場合、メイン放送（通常は最初の放送）を優先して返す。
+        """
         try:
-            script_element = WebDriverWait(driver, Constants.Time.SHORT_TIMEOUT).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, 'script[type="application/ld+json"]'))
+            script_elements = WebDriverWait(driver, Constants.Time.SHORT_TIMEOUT).until(
+                EC.presence_of_all_elements_located((By.CSS_SELECTOR, 'script[type="application/ld+json"]'))
             )
-            json_text = script_element.get_attribute('innerHTML')
-            data = json.loads(json_text)
 
-            # "startDate"と"endDate"を含む可能性のあるキーを探す
-            publication_event = None
-            if 'detailedRecentEvent:customProperty' in data and isinstance(data.get('detailedRecentEvent:customProperty'), dict):
-                publication_event = data['detailedRecentEvent:customProperty']
-            elif 'publication' in data:
-                # 'publication'はリストの場合と辞書の場合がある
-                if isinstance(data['publication'], list) and len(data['publication']) > 0:
-                    publication_event = data['publication'][0]
-                elif isinstance(data['publication'], dict):
-                    publication_event = data['publication']
+            all_broadcast_times = []
 
-            if not publication_event:
-                self.logger.warning("JSON-LD内に放送時間情報 (publication_event) が見つかりませんでした。")
+            for script_element in script_elements:
+                try:
+                    json_text = script_element.get_attribute('innerHTML')
+                    data = json.loads(json_text)
+
+                    # 複数の放送時間を収集
+                    def extract_times(data, path=None):
+                        if path is None:
+                            path = []
+                        times = []
+                        if isinstance(data, dict):
+                            # 放送時間情報を含む可能性のあるキーをチェック
+                            if 'startDate' in data and 'endDate' in data:
+                                try:
+                                    start_date = datetime.fromisoformat(data['startDate'].replace('Z', '+00:00'))
+                                    end_date = datetime.fromisoformat(data['endDate'].replace('Z', '+00:00'))
+                                    times.append((start_date, end_date, path.copy()))
+                                except (ValueError, TypeError) as e:
+                                    self.logger.debug(f"日付のパースに失敗しました: {e}")
+
+                            # ネストされたオブジェクトを再帰的にチェック
+                            for key, value in data.items():
+                                if isinstance(value, (dict, list)):
+                                    new_path = path + [key]
+                                    times.extend(extract_times(value, new_path))
+
+                        elif isinstance(data, list):
+                            for i, item in enumerate(data):
+                                if isinstance(item, (dict, list)):
+                                    new_path = path + [str(i)]
+                                    times.extend(extract_times(item, new_path))
+
+                        return times
+
+                    # このJSONオブジェクトから放送時間を抽出
+                    broadcast_times = extract_times(data)
+                    all_broadcast_times.extend(broadcast_times)
+
+                except json.JSONDecodeError as e:
+                    self.logger.debug(f"JSONのパースに失敗しました: {e}")
+                    continue
+
+            if not all_broadcast_times:
+                self.logger.warning("JSON-LD内に放送時間情報が見つかりませんでした。")
                 return None
 
-            start_date_str = publication_event.get('startDate')
-            end_date_str = publication_event.get('endDate')
+            # 放送時間でソート（最も早い時間が最初に来るように）
+            all_broadcast_times.sort(key=lambda x: x[0])
 
-            if start_date_str and end_date_str:
-                start_time = datetime.fromisoformat(start_date_str).strftime('%H:%M')
-                end_time = datetime.fromisoformat(end_date_str).strftime('%H:%M')
-                return f"{start_time}-{end_time}"
-            else:
-                self.logger.warning("JSON-LD内に startDate または endDate が見つかりませんでした。")
-                return None
+            # デバッグ用にすべての放送時間をログに記録
+            for i, (start, end, path) in enumerate(all_broadcast_times, 1):
+                self.logger.debug(f"放送時間 {i}: {start.strftime('%Y-%m-%d %H:%M')} - {end.strftime('%H:%M')} (path: {' > '.join(path)})")
 
-        except (NoSuchElementException, TimeoutException):
-            self.logger.debug("JSON-LDのscriptタグが見つかりませんでした。")
+            # 最初の放送時間を返す（通常はメイン放送）
+            main_start, main_end, _ = all_broadcast_times[0]
+            return f"{main_start.strftime('%H:%M')}-{main_end.strftime('%H:%M')}"
+
+        except (NoSuchElementException, TimeoutException) as e:
+            self.logger.debug(f"JSON-LDのscriptタグが見つかりませんでした: {e}")
             return None
-        except (json.JSONDecodeError, KeyError, ValueError) as e:
-            self.logger.error(f"JSON-LDからの時間抽出中にエラーが発生: {e}")
+        except Exception as e:
+            self.logger.error(f"放送時間の抽出中にエラーが発生しました: {e}", exc_info=True)
             return None
 
     @BaseScraper.handle_selenium_error
