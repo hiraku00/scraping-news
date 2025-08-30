@@ -342,9 +342,9 @@ class TVTokyoScraper(BaseScraper):
         all_formatted_outputs = []
         episode_details = []
         for url in episode_urls:
-            detail = self._fetch_tvtokyo_episode_details(driver, url, program_name)
-            if detail and detail[0] and detail[1]:
-                episode_details.append(detail)
+            title, detail_url = self._fetch_tvtokyo_episode_details(driver, url, program_name)
+            if detail_url:  # URLが存在する場合のみ追加
+                episode_details.append((title, detail_url))
 
         if not episode_details:
             return ScrapeStatus.FAILURE, "有効なエピソード詳細が見つかりませんでした"
@@ -555,7 +555,8 @@ class TVTokyoScraper(BaseScraper):
 
             # 複数のタイトルセレクタを試行（優先順位順）
             title_selectors = [
-                '[class*="episode"]',  # エピソード要素（最優先）
+                'span.episode__title',  # ガイアの夜明けのタイトル（最優先）
+                '[class*="episode"]',  # エピソード要素
                 'h1[class*="title"]',  # メインタイトル
                 'div[class*="title"]',  # タイトルdiv
                 'span[class*="title"]',  # タイトルspan
@@ -590,19 +591,6 @@ class TVTokyoScraper(BaseScraper):
                     if title:
                         break
                 except Exception as e:
-                    self.logger.debug(f"セレクタ {selector} でタイトル取得に失敗: {e}")
-                    continue
-
-            if not title:
-                self.logger.warning(f"エピソードタイトルが見つかりませんでした - {program_name} - {episode_url}")
-                return None, episode_url
-
-            self.logger.debug(f"エピソード詳細情報を取得しました: {program_name} - {title}")
-            return title, episode_url
-
-        except Exception as e:
-            self.logger.error(f"エピソード詳細取得エラー: {e} - {program_name}, {episode_url}", exc_info=True)
-            return None, None
 
 # --- 関数定義 ---
 # モジュールレベルのロガーを取得
