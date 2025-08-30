@@ -544,15 +544,83 @@ class TVTokyoScraper(BaseScraper):
 
     def _fetch_tvtokyo_episode_details(self, driver, episode_url: str, program_name: str) -> tuple[str | None, str | None]:
         """テレビ東京のエピソード詳細情報を取得する"""
+        # URLの形式をバリデーション
+        if not self._validate_program_url(episode_url, program_name):
+            self.logger.warning(f"無効なURLのためスキップ: {episode_url}")
+            return None, None
+            
+        # ガイアの夜明けの場合は特別な処理を行う
+        is_gaia = 'gaia' in episode_url.lower()
+        if is_gaia:
+            self.logger.debug(f"ガイアの夜明けのページを処理中: {episode_url}")
+            try:
+                driver.get(episode_url)
+                # ページが完全に読み込まれるまで待機
+                time.sleep(2)
+                
+                # 1. まずはepisode__titleクラスから直接取得を試みる
+                title_elements = driver.find_elements(By.CSS_SELECTOR, 'span.episode__title')
+                if title_elements:
+                    title = title_elements[0].text.strip()
+                    if title and len(title) > 0:
+                        self.logger.debug(f"episode__titleから取得: {title}")
+                        return title, episode_url
+                
+                # 2. 次に、JavaScriptを使用して要素を取得
+                title = driver.execute_script("""
+                    const titleEl = document.querySelector('span.episode__title');
+                    if (titleEl) return titleEl.textContent.trim();
+                    
+                    // 見つからない場合はOGタイトルを試す
+                    const ogTitle = document.querySelector('meta[property="og:title"]');
+                    if (ogTitle) {
+                        return ogTitle.content.replace('ガイアの夜明け', '').trim();
+                    }
+                    
+                    // それでも見つからない場合はH1タグを探す
+                    const h1 = document.querySelector('h1');
+                    if (h1) return h1.textContent.trim();
+                    
+                    return '';
+                """)
+                
+                if title and len(title) > 0:
+                    self.logger.debug(f"JavaScriptで取得したタイトル: {title}")
+                    return title, episode_url
+                
+                # 3. 最終手段として説明文から最初の1文を取得
+                description = driver.execute_script("""
+                    const meta = document.querySelector('meta[property="og:description"]') || 
+                               document.querySelector('meta[name="description"]');
+                    return meta ? meta.content : '';
+                """)
+                
+                if description:
+                    # 説明文から最初の1文をタイトルとして使用（最大100文字）
+                    if '。' in description:
+                        title = description.split('。')[0] + '。'
+                    else:
+                        title = description[:100] + '...' if len(description) > 100 else description
+                    
+                    # タイトルが長すぎる場合は適切な長さに切り詰める
+                    title = title[:97] + '...' if len(title) > 100 else title
+                    
+                    if title and len(title) > 5:
+                        self.logger.debug(f"説明文から抽出: {title}")
+                        return title, episode_url
+                
+                # どうしても取得できない場合はデフォルトのタイトルを返す
+                return f"{program_name}の番組情報", episode_url
+            except Exception as e:
+                self.logger.error(f"ガイアの夜明けのタイトル取得中にエラーが発生しました: {e}")
+                # エラーが発生した場合はデフォルトのタイトルを返す
+                return f"{program_name}の番組情報", episode_url
+            
         try:
-            # URLの形式をバリデーション
-            valid_url = self._validate_program_url(episode_url, program_name)
-            if not valid_url:
-                return None, None
             driver.get(episode_url)
             # ページが完全に読み込まれるまで待機
             time.sleep(2)
-
+            
             # 複数のタイトルセレクタを試行（優先順位順）
             title_selectors = [
                 'span.episode__title',  # ガイアの夜明けのタイトル（最優先）
@@ -569,28 +637,52 @@ class TVTokyoScraper(BaseScraper):
                 'div:not([class*="ad"]):not([class*="banner"]):not([class*="promo"])',
             ]
 
-            title = None
             for selector in title_selectors:
                 try:
                     title_elements = driver.find_elements(By.CSS_SELECTOR, selector)
-                    for element in title_elements:
-                        # テキストを取得
-                        text = element.text.strip()
-                        if text and len(text) > 5:  # 意味のある長さのテキスト
-                            # 最初の行のみを取得（改行で分割）
-                            lines = text.split('\n')
-                            title = lines[0].strip()
-                            if title and len(title) > 5:
-                                # 広告テキストを除外
-                                if any(ad_text in title.lower() for ad_text in ['無料登録', '今すぐ', 'ログイン', '登録', 'ミュートを解除']):
-                                    continue
-                                # より確実なタイトル判定（長いタイトルを優先）
-                                if len(title) > 10 and not title.startswith('ミュート'):
-                                    self.logger.debug(f"タイトルを取得しました ({selector}): {title}")
-                                    break
-                    if title:
-                        break
+                    if is_gaia and title_elements:
+                        self.logger.debug(f"ガイアの夜明け - セレクタ '{selector}' で {len(title_elements)} 個の要素を発見")
+                        
+                    for i, element in enumerate(title_elements):
+                        try:
+                            # テキストを取得
+                            text = element.text.strip()
+                            if is_gaia and text:
+                                self.logger.debug(f"  要素 {i+1}: テキスト長={len(text)}, テキスト='{text[:50]}...'")
+                                
+                            if text and len(text) > 5:  # 意味のある長さのテキスト
+                                # 最初の行のみを取得（改行で分割）
+                                lines = text.split('\n')
+                                title = lines[0].strip()
+                                if title and len(title) > 5:
+                                    # 広告テキストを除外
+                                    if any(ad_text in title.lower() for ad_text in ['無料登録', '今すぐ', 'ログイン', '登録', 'ミュートを解除']):
+                                        if is_gaia:
+                                            self.logger.debug(f"  広告テキストのためスキップ: {title}")
+                                        continue
+                                        
+                                    # ガイアの夜明けの場合はより詳細なログを出力
+                                    if is_gaia:
+                                        self.logger.debug(f"  候補タイトル: '{title}' (長さ: {len(title)})")
+                                    
+                                    # より確実なタイトル判定（長いタイトルを優先）
+                                    if len(title) > 10 and not title.startswith('ミュート'):
+                                        self.logger.debug(f"タイトルを取得しました ({selector}): {title}")
+                                        return title, episode_url
+                        except Exception as e:
+                            self.logger.debug(f"要素の処理中にエラーが発生しました: {e}")
+                            continue
                 except Exception as e:
+                    self.logger.debug(f"タイトルの取得中にエラーが発生しました: {e}")
+                    continue
+            
+            # タイトルが見つからなかった場合
+            self.logger.warning(f"タイトルが見つかりませんでした: {episode_url}")
+            return f"{program_name}の番組情報", episode_url
+            
+        except Exception as e:
+            self.logger.error(f"エピソード詳細の取得中にエラーが発生しました: {e}")
+            return None, None
 
 # --- 関数定義 ---
 # モジュールレベルのロガーを取得
