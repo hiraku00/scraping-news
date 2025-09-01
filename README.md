@@ -37,25 +37,73 @@
 ### メインコマンド
 
 ```bash
-python main.py [コマンド] [オプション]
-```
+# 基本形式
+python main.py --date YYYYMMDD [オプション]
 
-### コマンド一覧
+# 例: 2025年8月30日のデータを処理
+python main.py --date 20250830
 
-#### 全ステップ実行（スクレイピング→ツイート取得→マージ→分割→URLオープン）
+# 年を2桁で指定（25年8月30日）
+python main.py --date 250830
+
+### オプション一覧
+
+| オプション | 説明 |
+|------------|------|
+| `--scrape` | スクレイピングのみ実行 |
+| `--get-tweets` | ツイート取得のみ実行 |
+| `--merge` | マージのみ実行 |
+| `--split` | 分割のみ実行 |
+| `--open` | URLをブラウザで開く |
+| `--tweet` | ツイート投稿のみ実行 |
+| `--all` | 全ステップ実行（スクレイピング→ツイート取得→マージ→分割） |
+| `--date YYYYMMDD` | 処理する日付を指定（例: `--date 20250830`） |
+| `--debug` | デバッグモードで実行 |
+| `--help` | ヘルプを表示 |
+
+### 出力ファイル
+
+- スクレイピング結果: `output/YYYYMMDD.txt`
+- マージ前のバックアップ: `output/YYYYMMDD_before-merge.txt`
+- 分割前のバックアップ: `output/YYYYMMDD_before-split.txt`
+- ツイート用テキスト: `output/YYYYMMDD_tweet.txt`
+
+### 実行例
+
+#### 通常の実行（前日のデータを処理）
 ```bash
-python main.py --all [--date YYYYMMDD] [--debug]
+# 全ステップ実行（ツイート投稿は除く）
+python main.py --all
+
+# 個別に実行する場合
+python main.py --scrape
+python main.py --get-tweets
+python main.py --merge
+python main.py --split
+python main.py --open
+
+# ツイートを投稿する場合
+python main.py --tweet
 ```
 
-#### 個別ステップ実行
-| コマンド | 説明 | 出力ファイル |
-|----------|------|--------------|
-| `python main.py --scrape [--date YYYYMMDD]` | スクレイピングのみ実行 | `output/scraped_YYYYMMDD.txt` |
-| `python main.py --get-tweets [--date YYYYMMDD]` | ツイート取得のみ実行 | `output/tweets_YYYYMMDD.txt` |
-| `python main.py --merge [--date YYYYMMDD]` | マージのみ実行 | `output/merged_YYYYMMDD.txt` |
-| `python main.py --split [--date YYYYMMDD]` | 分割のみ実行 | `output/split_YYYYMMDD.txt` |
-| `python main.py --open [--date YYYYMMDD]` | URLオープンのみ実行 | - |
-| `python main.py --tweet [--date YYYYMMDD]` | ツイート投稿のみ実行。`output/YYYYMMDD.txt`の内容をツイートします。複数のツイートがある場合はスレッド形式で投稿されます。 | - |
+#### 特定の日付を処理
+```bash
+# 2025年8月30日のデータを処理（全ステップ）
+python main.py --date 20250830 --all
+
+# 年を2桁で指定（25年8月30日）
+python main.py --date 250830 --all
+
+# 特定のステップのみ実行
+python main.py --date 20250830 --scrape
+python main.py --date 20250830 --tweet
+```
+
+#### デバッグモード
+```bash
+# デバッグ情報を表示しながら実行
+python main.py --date 20250830 --all --debug
+```
 
 ### オプション
 
@@ -99,37 +147,33 @@ python main.py --all --debug
 
 ## スクリプトの詳細
 
-### tweet.py
+### ツイート投稿機能
 
-このスクリプトは、指定された日付のテキストファイルを読み込み、X（旧Twitter）に投稿します。
+`main.py --tweet` オプションを使用すると、指定された日付のテキストファイルを読み込み、X（旧Twitter）に投稿します。
 
 #### 主な機能
 - テキストファイルの内容をツイートに変換
 - 複数のツイートをスレッド形式で投稿
-- レート制限を考慮したリトライ処理
-
-#### 使用方法
-```bash
-# 直接実行する場合
-python tweet.py YYYYMMDD
-
-# 例: 2025年7月28日のツイートを投稿
-python tweet.py 20250728
-```
+- レート制限を考慮したリトライ処理（最大3回）
+- ツイート間の適切な間隔（5秒）を自動で確保
 
 #### 入力ファイル
-- `output/YYYYMMDD.txt`
-  - 改行2つでツイートを区切ります
+- `output/YYYYMMDD.txt` または `output/YYYYMMDD_tweet.txt`
+  - 空行でツイートを区切ります
   - 1つ目のツイートには自動的にヘッダーが追加されます
+  - 1ツイートあたりの文字数制限（280文字）を超える場合は自動で分割
 
 #### エラーハンドリング
 - ファイルが存在しない場合はエラーを表示して終了
 - ツイートの投稿に失敗した場合は最大3回までリトライ
 - レート制限に達した場合は自動的に待機
+- エラー発生時は詳細なログを出力
 
 ## スクリプトの詳細
 
-### `scraping-news.py`
+### スクレイピング機能
+
+`main.py --scrape` オプションを使用すると、NHKとテレビ東京のウェブサイトから指定された日付のニュース番組情報を収集します。
 
 このスクリプトは、NHKとテレビ東京のウェブサイトから指定された日付のニュース番組情報を収集します。`ini`ディレクトリ内の設定ファイルに基づいて、スクレイピング対象の番組を定義します。
 
