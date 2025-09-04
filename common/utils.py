@@ -69,10 +69,10 @@ class Constants:
 
         # --- TV Tokyo ---
         # エピソード要素（各番組のURLパターンに対応）
-        TVTOKYO_VIDEO_ITEM = 'div[role="presentation"][class*="css-"][href*="/nms/special/post_"], div[role="presentation"][class*="css-"][href*="/wbs/feature/post_"], div[role="presentation"][class*="css-"][href*="/wbs/trend_tamago/"], div[role="presentation"][class*="css-"][href*="/gaia/"], div[role="presentation"][class*="css-"][href*="/cambria/"]'
+        TVTOKYO_VIDEO_ITEM = 'div[role="presentation"][class*="css-"][href*="/nms/special/post_"], div[role="presentation"][class*="css-"][href*="/wbs/feature/post_"], div[role="presentation"][class*="css-"][href*="/wbs/trend_tamago/"], div[role="presentation"][class*="css-"][href*="/wbs/oa/"], div[role="presentation"][class*="css-"][href*="/gaia/"], div[role="presentation"][class*="css-"][href*="/cambria/"]'
         TVTOKYO_DATE_SPAN = 'span[class*="iCkNIF"][role="presentation"][color="#C4C4C4"]:not(.play_time)'
         # リンク要素（各番組のURLパターンに対応）
-        TVTOKYO_POST_LINK = 'a[href*="/nms/special/post_"], a[href*="/wbs/feature/post_"], a[href*="/wbs/trend_tamago/"], a[href*="/gaia/"], a[href*="/cambria/"]'
+        TVTOKYO_POST_LINK = 'a[href*="/nms/special/post_"], a[href*="/wbs/feature/post_"], a[href*="/wbs/trend_tamago/"], a[href*="/wbs/oa/"], a[href*="/gaia/"], a[href*="/cambria/"]'
         TVTOKYO_EPISODE_TITLE = 'div[class*="item_title"][title]'
 
 # --- logging.basicConfig の呼び出しを削除 ---
