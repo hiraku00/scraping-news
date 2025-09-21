@@ -105,6 +105,8 @@ python main.py --date 20250830 --tweet
 python main.py --date 20250830 --all --debug
 ```
 
+他番組/VOD/不正URLのスキップ詳細ログは、DEBUGレベル時のみ表示されます（通常は非表示）。
+
 ### オプション
 
 - `--date YYYYMMDD`: 処理する日付を指定（デフォルト: 前日）
@@ -187,6 +189,10 @@ python main.py --all --debug
 *   **詳細な番組情報抽出**: 各番組のエピソードタイトル、URL、放送時間を抽出します。
 *   **時間順のソート**: スクレイピングした番組情報を時間順にソートして出力します。
 
+*   **テレ東抽出の方針**: 対象番組の一覧コンテナー（`div[id^="News_Detail__Videos_"]`）配下のみを走査し、各カード内の `a[href*="/post_"]` を抽出します。抽出したURLは番組名とカテゴリ（例: `/oa` は必須、`/vod` は除外）で検証してから採用します。
+*   **待機戦略**: 一覧コンテナーの出現後、「コンテナー配下のアイテム件数 > 0」になるまで待機してから抽出を開始します（DOM初期化のぶれに対する耐性向上）。
+*   **WebDriverタイムアウト**: `ini/tvtokyo_config.ini` の `webdriver_timeout`（秒）で待機時間を調整できます。
+
 #### 使い方
 
 1.  `ini`ディレクトリに設定ファイルを作成します（例：`nhk_config.ini`, `tvtokyo_config.ini`）。設定ファイルは `common.utils` の `load_config` 関数、および `parse_nhk_programs_config`, `parse_tvtokyo_programs_config` 関数を使って読み込まれます。
@@ -213,12 +219,12 @@ python main.py --all --debug
     [program_1]
     name = モーサテ
     url = https://txbiz.tv-tokyo.co.jp/nms/special
-    time = 05:45~07:05
+    time = 05:45-07:05
 
     [program_2]
     name = WBS
     url = https://txbiz.tv-tokyo.co.jp/wbs/feature
-    time = 22:00~22:58
+    time = 22:00-22:58
 
     ; 他の番組も同様に定義
     ```
