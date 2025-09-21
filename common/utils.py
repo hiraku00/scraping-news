@@ -68,6 +68,10 @@ class Constants:
         STREAM_PANEL_INFO_META = "stream_panel--info--meta" # このセレクタは古い可能性がある
 
         # --- TV Tokyo ---
+        # 一覧コンテナ（番組ごとの動画一覧を囲うコンテナ）
+        TVTOKYO_LIST_CONTAINER = 'div[id^="News_Detail__Videos_"]'
+        # 親アイテム（roleとクラスで特定）
+        TVTOKYO_ITEM = 'div[role="presentation"].itemHover[class*="css-"]'
         # エピソード要素（各番組のURLパターンに対応）
         TVTOKYO_VIDEO_ITEM = 'div[role="presentation"][class*="css-"][href*="/nms/special/post_"], div[role="presentation"][class*="css-"][href*="/wbs/feature/post_"], div[role="presentation"][class*="css-"][href*="/wbs/trend_tamago/"], div[role="presentation"][class*="css-"][href*="/wbs/oa/"], div[role="presentation"][class*="css-"][href*="/gaia/"], div[role="presentation"][class*="css-"][href*="/cambria/"]'
         TVTOKYO_DATE_SPAN = 'span[class*="iCkNIF"][role="presentation"][color="#C4C4C4"]:not(.play_time)'
