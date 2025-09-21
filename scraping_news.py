@@ -378,30 +378,31 @@ class TVTokyoScraper(BaseScraper):
         for target_url in target_urls:
             try:
                 driver.get(target_url)
-                # ページの主要なリスト要素が表示されるまで待機（より具体的に）
+                # 対象番組の一覧コンテナが表示されるまで待機
                 try:
                     WebDriverWait(driver, Constants.Time.DEFAULT_TIMEOUT).until(
-                        EC.presence_of_element_located((By.CSS_SELECTOR, Constants.CSSSelector.TVTOKYO_VIDEO_ITEM))
+                        EC.presence_of_element_located((By.CSS_SELECTOR, Constants.CSSSelector.TVTOKYO_LIST_CONTAINER))
                     )
                 except TimeoutException:
-                    self.logger.warning(f"{program_name} のエピソードリスト要素が見つかりませんでした（タイムアウト） - {target_url}")
+                    self.logger.warning(f"{program_name} の一覧コンテナが見つかりませんでした（タイムアウト） - {target_url}")
                     continue  # 次のURLへ
 
                 # 動的コンテンツ（特に日付やリンク情報）が読み込まれるのを待機
                 # リストの最後の要素が 'visibility' (表示状態) になるまで待つ
                 try:
-                    # 最後の要素を取得するCSSセレクタ :last-child を使用
-                    last_item_selector = f"{Constants.CSSSelector.TVTOKYO_VIDEO_ITEM}:last-child"
-                    WebDriverWait(driver, Constants.Time.SHORT_TIMEOUT).until(  # 少し短めのタイムアウトで試行
-                        EC.visibility_of_element_located((By.CSS_SELECTOR, last_item_selector))
+                    # コンテナ配下のアイテム件数が > 0 になるまで待機（可視待機より直接的）
+                    WebDriverWait(driver, Constants.Time.DEFAULT_TIMEOUT).until(
+                        lambda d: len(d.find_element(By.CSS_SELECTOR, Constants.CSSSelector.TVTOKYO_LIST_CONTAINER)
+                                       .find_elements(By.CSS_SELECTOR, Constants.CSSSelector.TVTOKYO_ITEM)) > 0
                     )
                 except TimeoutException:
-                    # タイムアウトしても、要素が取得できる可能性はあるため、警告に留めて処理を続行
                     self.logger.warning(
-                        f"リストの最後の要素の表示待機中にタイムアウトしましたが、処理を続行します - {program_name} - {target_url}"
+                        f"{program_name} のアイテム出現待機でタイムアウトしました - {target_url}"
                     )
 
-                episode_elements = driver.find_elements(By.CSS_SELECTOR, Constants.CSSSelector.TVTOKYO_VIDEO_ITEM)
+                # 一覧コンテナ配下のアイテムに限定
+                container = driver.find_element(By.CSS_SELECTOR, Constants.CSSSelector.TVTOKYO_LIST_CONTAINER)
+                episode_elements = container.find_elements(By.CSS_SELECTOR, Constants.CSSSelector.TVTOKYO_ITEM)
                 if not episode_elements:
                     self.logger.warning(f"{program_name} のエピソード要素が見つかりませんでした - {target_url}")
                     continue
@@ -456,27 +457,21 @@ class TVTokyoScraper(BaseScraper):
                         if is_matching_date:
                             try:
                                 self.logger.debug("一致する日付のエピソードが見つかりました。リンクを検索中...")
-                                link_element = episode.find_element(
-                                    By.CSS_SELECTOR, Constants.CSSSelector.TVTOKYO_POST_LINK
-                                )
-                                link = link_element.get_attribute("href")
-                                if link:
-                                    # URLの形式をバリデーション
-                                    valid_url = self._validate_program_url(link, program_name)
-                                    if not valid_url:
+                                link_elements = episode.find_elements(By.CSS_SELECTOR, 'a[href*="/post_"]')
+                                if not link_elements:
+                                    self.logger.debug(f"リンク要素が見つかりませんでした - {program_name} - {target_url}")
+                                for link_el in link_elements:
+                                    link = link_el.get_attribute("href")
+                                    if not link:
+                                        continue
+                                    # URLの形式をバリデーション（番組一致・/oa必須・/vod除外）
+                                    if not self._validate_program_url(link, program_name):
                                         continue
                                     self.logger.debug(f"見つかったリンク: {link}")
                                     urls_found_on_page.append(link)
-                                else:
-                                    self.logger.debug(f"リンクURLが空でした - {program_name} - {target_url}")
-                            except NoSuchElementException:
-                                self.logger.debug(f"リンク要素が見つかりませんでした - {program_name} - {target_url}")
-                                # エピソード要素のHTMLをデバッグ出力
-                                try:
-                                    episode_html = episode.get_attribute('outerHTML')
-                                    self.logger.debug(f"エピソード要素のHTML: {episode_html[:500]}...")  # 最初の500文字だけ表示
-                                except Exception as e:
-                                    self.logger.error(f"エピソード要素のHTML取得中にエラーが発生しました: {e}")
+                                    break  # 同一アイテムで1本取れれば十分
+                            except Exception as e:
+                                self.logger.error(f"リンク抽出中にエラーが発生しました: {e}")
 
                     except Exception as e_inner:
                         self.logger.error(f"エピソード解析中に予期せぬエラー: {e_inner} - {program_name} - {target_url}", exc_info=True)
@@ -519,16 +514,16 @@ class TVTokyoScraper(BaseScraper):
 
         # URLが別の番組のものである場合は除外
         if detected_program != program_name:
-            self.logger.warning(f"他番組の記事をスキップ: {url} (期待:{program_name}, 検出:{detected_program})")
+            self.logger.debug(f"他番組の記事をスキップ: {url} (期待:{program_name}, 検出:{detected_program})")
             return False
 
         # /oa/と/vod/の処理
         if current_pattern[1]:  # oa_patternが存在する場合
             if current_pattern[2] in url:  # vodを含む場合は除外
-                self.logger.warning(f"{program_name}のVOD URLをスキップ: {url}")
+                self.logger.debug(f"{program_name}のVOD URLをスキップ: {url}")
                 return False
             if current_pattern[1] not in url:  # oaを含まない場合も除外
-                self.logger.warning(f"{program_name}の不正なURL形式をスキップ: {url}")
+                self.logger.debug(f"{program_name}の不正なURL形式をスキップ: {url}")
                 return False
 
         return True
