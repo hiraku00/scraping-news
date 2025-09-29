@@ -68,41 +68,38 @@ python main.py --date 250830
 - 分割前のバックアップ: `output/YYYYMMDD_before-split.txt`
 - ツイート用テキスト: `output/YYYYMMDD_tweet.txt`
 
-### 実行例
+### 実行例（サブコマンド）
 
 #### 通常の実行（前日のデータを処理）
 ```bash
-# 全ステップ実行（ツイート投稿は除く）
-python main.py --all
+# 全ステップ実行
+python main.py all
 
 # 個別に実行する場合
-python main.py --scrape
-python main.py --get-tweets
-python main.py --merge
-python main.py --split
-python main.py --open
+python main.py scrape
+python main.py get-tweets
+python main.py merge
+python main.py split
+python main.py open
 
 # ツイートを投稿する場合
-python main.py --tweet
+python main.py tweet
 ```
 
 #### 特定の日付を処理
 ```bash
-# 2025年8月30日のデータを処理（全ステップ）
-python main.py --date 20250830 --all
-
-# 年を2桁で指定（25年8月30日）
-python main.py --date 250830 --all
+# 2025-08-30 のデータを処理（全ステップ）
+python main.py all --date 20250830
 
 # 特定のステップのみ実行
-python main.py --date 20250830 --scrape
-python main.py --date 20250830 --tweet
+python main.py scrape --date 20250830
+python main.py tweet --date 20250830
 ```
 
 #### デバッグモード
 ```bash
 # デバッグ情報を表示しながら実行
-python main.py --date 20250830 --all --debug
+python main.py all --date 20250830 --debug
 ```
 
 他番組/VOD/不正URLのスキップ詳細ログは、DEBUGレベル時のみ表示されます（通常は非表示）。
@@ -111,7 +108,7 @@ python main.py --date 20250830 --all --debug
 
 - `--date YYYYMMDD`: 処理する日付を指定（デフォルト: 前日）
 - `--debug`: デバッグモードで実行（詳細なログを表示）
-- `--help`: ヘルプを表示
+- `--help`: ヘルプを表示（全体/各コマンド）
 
 ### 実行例
 
@@ -151,7 +148,7 @@ python main.py --all --debug
 
 ### ツイート投稿機能
 
-`main.py --tweet` オプションを使用すると、指定された日付のテキストファイルを読み込み、X（旧Twitter）に投稿します。
+`python main.py tweet` を使用すると、指定された日付のテキストファイルを読み込み、X（旧Twitter）に投稿します。
 
 #### 主な機能
 - テキストファイルの内容をツイートに変換
@@ -356,11 +353,13 @@ python main.py --all --debug
     ```
 
 2.  `split-text.py` を実行して、`output` ディレクトリにツイート用のテキストファイルを作成します。
-3.  以下のコマンドでスクリプトを実行します。
+3.  以下のコマンドで実行します（サブコマンド）
 
     ```bash
-    python tweet.py <投稿したい日付(例:20250125)>
+    python main.py tweet --date 20250125
     ```
+
+    注意: テスト時は必ずTwitter APIをモック化し、実APIを呼ばないようにしてください（レート・規約・誤投稿対策）。
 #### 依存ライブラリ
 
 *   **`scraping-news.py`**

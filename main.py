@@ -394,23 +394,24 @@ def run_tweet(target_date: str, output_dir: str = "output") -> bool:
 def parse_args() -> argparse.Namespace:
     """コマンドライン引数を解析します。"""
     parser = argparse.ArgumentParser(description='ニューススクレイピングとツイート投稿のワークフローを管理します。')
-    
-    # グローバルオプション
-    parser.add_argument('--date', type=str, help='処理する日付 (YYYYMMDD形式、デフォルト: 前日)')
-    parser.add_argument('--debug', action='store_true', help='デバッグモードで実行（詳細なログを表示）')
+
+    # 共通オプション（サブコマンド後ろでも受け付けるための親パーサ）
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument('--date', type=str, help='処理する日付 (YYYYMMDD形式、デフォルト: 前日)')
+    common.add_argument('--debug', action='store_true', help='デバッグモードで実行（詳細なログを表示）')
 
     # サブコマンド
     subparsers = parser.add_subparsers(dest='command', metavar='command', help='実行するコマンド')
     subparsers.required = False  # 後方互換のため、ここでは必須にしない
 
     # 各コマンド
-    subparsers.add_parser('all', help='全ステップを実行（スクレイピング→ツイート取得→マージ→分割→URLオープン）')
-    subparsers.add_parser('scrape', help='スクレイピングのみ実行')
-    subparsers.add_parser('get-tweets', help='ツイート取得のみ実行')
-    subparsers.add_parser('merge', help='マージのみ実行')
-    subparsers.add_parser('split', help='分割のみ実行')
-    subparsers.add_parser('open', help='URLオープンのみ実行')
-    subparsers.add_parser('tweet', help='ツイート投稿のみ実行')
+    subparsers.add_parser('all', parents=[common], help='全ステップを実行（スクレイピング→ツイート取得→マージ→分割→URLオープン）')
+    subparsers.add_parser('scrape', parents=[common], help='スクレイピングのみ実行')
+    subparsers.add_parser('get-tweets', parents=[common], help='ツイート取得のみ実行')
+    subparsers.add_parser('merge', parents=[common], help='マージのみ実行')
+    subparsers.add_parser('split', parents=[common], help='分割のみ実行')
+    subparsers.add_parser('open', parents=[common], help='URLオープンのみ実行')
+    subparsers.add_parser('tweet', parents=[common], help='ツイート投稿のみ実行')
 
     # 後方互換: 旧フラグを受け付ける（使用時は警告を表示）
     parser.add_argument('--all', dest='flag_all', action='store_true', help=argparse.SUPPRESS)
