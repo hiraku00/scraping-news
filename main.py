@@ -395,26 +395,64 @@ def parse_args() -> argparse.Namespace:
     """コマンドライン引数を解析します。"""
     parser = argparse.ArgumentParser(description='ニューススクレイピングとツイート投稿のワークフローを管理します。')
     
-    # メインオプション
-    parser.add_argument('--date', type=str, help='処理する日付 (YYYYMMDD形式、デフォルト: 今日)')
+    # グローバルオプション
+    parser.add_argument('--date', type=str, help='処理する日付 (YYYYMMDD形式、デフォルト: 前日)')
     parser.add_argument('--debug', action='store_true', help='デバッグモードで実行（詳細なログを表示）')
-    
-    # アクションオプション（排他的）
-    action_group = parser.add_mutually_exclusive_group()
-    action_group.add_argument('--all', action='store_true', help='全ステップを実行（スクレイピング→ツイート取得→マージ→分割→URLオープン）')
-    action_group.add_argument('--scrape', action='store_true', help='スクレイピングのみ実行')
-    action_group.add_argument('--get-tweets', action='store_true', help='ツイート取得のみ実行')
-    action_group.add_argument('--merge', action='store_true', help='マージのみ実行')
-    action_group.add_argument('--split', action='store_true', help='分割のみ実行')
-    action_group.add_argument('--open', action='store_true', help='URLオープンのみ実行')
-    action_group.add_argument('--tweet', action='store_true', help='ツイート投稿のみ実行')
-    
+
+    # サブコマンド
+    subparsers = parser.add_subparsers(dest='command', metavar='command', help='実行するコマンド')
+    subparsers.required = False  # 後方互換のため、ここでは必須にしない
+
+    # 各コマンド
+    subparsers.add_parser('all', help='全ステップを実行（スクレイピング→ツイート取得→マージ→分割→URLオープン）')
+    subparsers.add_parser('scrape', help='スクレイピングのみ実行')
+    subparsers.add_parser('get-tweets', help='ツイート取得のみ実行')
+    subparsers.add_parser('merge', help='マージのみ実行')
+    subparsers.add_parser('split', help='分割のみ実行')
+    subparsers.add_parser('open', help='URLオープンのみ実行')
+    subparsers.add_parser('tweet', help='ツイート投稿のみ実行')
+
+    # 後方互換: 旧フラグを受け付ける（使用時は警告を表示）
+    parser.add_argument('--all', dest='flag_all', action='store_true', help=argparse.SUPPRESS)
+    parser.add_argument('--scrape', dest='flag_scrape', action='store_true', help=argparse.SUPPRESS)
+    parser.add_argument('--get-tweets', dest='flag_get_tweets', action='store_true', help=argparse.SUPPRESS)
+    parser.add_argument('--merge', dest='flag_merge', action='store_true', help=argparse.SUPPRESS)
+    parser.add_argument('--split', dest='flag_split', action='store_true', help=argparse.SUPPRESS)
+    parser.add_argument('--open', dest='flag_open', action='store_true', help=argparse.SUPPRESS)
+    parser.add_argument('--tweet', dest='flag_tweet', action='store_true', help=argparse.SUPPRESS)
+
     # 引数が指定されていない場合はヘルプを表示
     if len(sys.argv) == 1:
         parser.print_help()
         sys.exit(1)
-    
-    return parser.parse_args()
+
+    args = parser.parse_args()
+
+    # 旧フラグの使用を検出してサブコマンドに正規化
+    legacy_map = {
+        'all': args.flag_all if hasattr(args, 'flag_all') else False,
+        'scrape': args.flag_scrape if hasattr(args, 'flag_scrape') else False,
+        'get-tweets': args.flag_get_tweets if hasattr(args, 'flag_get_tweets') else False,
+        'merge': args.flag_merge if hasattr(args, 'flag_merge') else False,
+        'split': args.flag_split if hasattr(args, 'flag_split') else False,
+        'open': args.flag_open if hasattr(args, 'flag_open') else False,
+        'tweet': args.flag_tweet if hasattr(args, 'flag_tweet') else False,
+    }
+
+    if args.command is None:
+        used_flags = [name for name, used in legacy_map.items() if used]
+        if len(used_flags) > 1:
+            parser.error(f"旧スタイルのフラグは同時に1つだけ指定できます: {', '.join(used_flags)}")
+        if len(used_flags) == 1:
+            args.command = used_flags[0]
+            logger.warning(f"警告: 旧スタイルのフラグ '--{used_flags[0]}' は非推奨です。今後はサブコマンド 'python main.py {used_flags[0]}' を使用してください。")
+
+    # それでもコマンドが未指定ならヘルプ表示
+    if args.command is None:
+        parser.print_help()
+        sys.exit(1)
+
+    return args
 
 
 def main() -> int:
@@ -430,11 +468,11 @@ def main() -> int:
     target_date = get_target_date(args.date)
     logger.info(f"Processing date: {target_date}")
     
-    # 各アクションの実行
+    # 各アクションの実行（サブコマンドに基づく）
     success = True
     
     try:
-        if args.all:
+        if args.command == 'all':
             # スクレイピング実行
             logger.info("=== スクレイピングを開始します ===")
             if not run_scrape(target_date):
@@ -480,30 +518,31 @@ def main() -> int:
                 logger.info("=== URLオープンが完了しました ===\n")
         
         # 個別のアクション
-        elif args.scrape:
+        elif args.command == 'scrape':
             success = run_scrape(target_date)
-        elif args.get_tweets:
+        elif args.command == 'get-tweets':
             success = get_tweets(target_date)
-        elif args.merge:
+        elif args.command == 'merge':
             success = run_merge(target_date)
-        elif args.split:
+        elif args.command == 'split':
             success = run_split(target_date)
-        elif args.open:
+        elif args.command == 'open':
             success = run_open_urls(target_date)
-        elif args.tweet:
+        elif args.command == 'tweet':
             success = run_tweet(target_date)
-        
+        else:
+            logger.error(f"Unknown command: {args.command}")
+            return 1
+
         if not success:
             logger.error("処理が失敗しました")
             return 1
-            
+        
         logger.info("処理が正常に完了しました")
         return 0
         
     except Exception as e:
         logger.error(f"予期しないエラーが発生しました: {str(e)}", exc_info=args.debug)
         return 1
-
-
 if __name__ == "__main__":
     sys.exit(main())
