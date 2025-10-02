@@ -54,18 +54,18 @@ class Constants:
 
     class CSSSelector:
         """CSSセレクタを定義するクラス"""
-        # --- NHK ---
-        EPISODE_INFO = 'gc-stream-panel-info'
-        DATE_YEAR = 'gc-atom-text-for-date-year'
-        DATE_DAY = 'gc-atom-text-for-date-day'
-        DATE_TEXT_NO_YEAR = 'gc-stream-panel-info-title'
-        DATE_TEXT_WITH_YEAR = 'gc-stream-panel-info-title-firstbroadcastdate-date'
-        EPISODE_URL_TAG = 'a'
-        TITLE = 'title'
+        # --- NHK (新しいNHK ONE構造) ---
+        EPISODE_INFO = 'article.fcda9gb'  # エピソード情報コンテナ
+        DATE_YEAR = 'time[datetime]'     # 日付情報（datetime属性から取得）
+        DATE_DAY = 'time[datetime]'      # 日付情報（datetime属性から取得）
+        DATE_TEXT_NO_YEAR = 'time'      # 日付情報（テキストから取得）
+        DATE_TEXT_WITH_YEAR = 'time[datetime]'      # 放送日時情報（datetime属性から取得）
+        EPISODE_URL_TAG = 'a[href*="/series-tep-"]'  # エピソードURL
+        TITLE = 'h1'  # エピソードタイトル
         NHK_PLUS_URL_SPAN = '//div[@class="detailed-memo-body"]/span[contains(@class, "detailed-memo-headline")]/a[contains(text(), "NHKプラス配信はこちらからご覧ください")]'
-        EYECATCH_IMAGE_DIV = 'gc-images.is-medium.eyecatch' # このセレクタは古い可能性がある
-        IFRAME_ID = 'eyecatchIframe'                      # このセレクタは古い可能性がある
-        STREAM_PANEL_INFO_META = "stream_panel--info--meta" # このセレクタは古い可能性がある
+        EYECATCH_IMAGE_DIV = 'div[class*="xkzxzo"]'  # 新しいアイキャッチ画像コンテナ
+        IFRAME_ID = 'eyecatchIframe'
+        STREAM_PANEL_INFO_META = "div[class*='_1i3qn2c']"  # エピソード情報メタデータ
 
         # --- TV Tokyo ---
         # 一覧コンテナ（番組ごとの動画一覧を囲うコンテナ）
