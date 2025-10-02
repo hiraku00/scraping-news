@@ -35,6 +35,7 @@ class NHKScraper(BaseScraper):
     def __init__(self, config):
         super().__init__(config)
         self.episode_processor = EpisodeProcessor(self.logger)
+        self.current_episode_title = None  # エピソードタイトルを保存する変数
 
     @BaseScraper.log_operation("番組情報の取得")
     def get_program_info(self, program_name: str, target_date: str) -> ScrapeResult:
@@ -81,6 +82,10 @@ class NHKScraper(BaseScraper):
         for episode in episodes:
             episode_date = self.episode_processor.extract_episode_date(episode, program_title)
             if episode_date and episode_date == target_date_dt:
+                # エピソードタイトルを抽出して保存
+                self.current_episode_title = self.episode_processor.extract_episode_title(episode, program_title)
+                if self.current_episode_title:
+                    self.logger.debug(f"エピソードタイトルを抽出しました: {self.current_episode_title}")
                 return self.episode_processor.extract_episode_url(episode, program_title)
         return None
 
@@ -164,7 +169,10 @@ class NHKScraper(BaseScraper):
     def _get_nhk_formatted_episode_info(self, driver, program_title: str, episode_url: str, channel: str) -> str | None:
         """NHKのエピソード情報を整形する"""
         self.episode_processor.get_episode_detail_page(driver, episode_url)
-        episode_title = self.episode_processor.extract_episode_title(driver)
+        episode_title = self.episode_processor.extract_episode_title(driver, program_title)
+        if not episode_title:
+            # エピソード詳細ページでタイトルが取得できない場合は、一覧ページから取得したタイトルを使う
+            episode_title = self.current_episode_title
         if not episode_title:
             return None
 

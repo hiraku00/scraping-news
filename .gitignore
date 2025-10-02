@@ -24,5 +24,8 @@ wheels/
 
 .env
 
+.coverage
+htmlcov/
+.pytest_cache/
 
 ~/brave-debug-profile/*

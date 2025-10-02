@@ -19,16 +19,16 @@ class TestEpisodeProcessor(unittest.TestCase):
         return mock_element
 
     def test_extract_date_text_with_year(self):
-        """年付きの日付テキスト抽出のテスト"""
-        mock_year = self.create_mock_element(text="2025年")
-        mock_day = self.create_mock_element(text="4月10日")
-        mock_date = MagicMock()
-        mock_date.find_element.side_effect = [mock_year, mock_day]
+        """年付きの日付テキスト抽出のテスト（新しいNHK ONE構造対応）"""
+        # 新しい構造ではtime要素のdatetime属性から日付を取得
+        mock_time_element = self.create_mock_element()
+        mock_time_element.get_attribute.return_value = "2025-10-09T10:05:00+09:00"
+
         mock_episode = MagicMock()
-        mock_episode.find_element.return_value = mock_date
+        mock_episode.find_element.return_value = mock_time_element
 
         result = self.processor._extract_date_text(mock_episode, self.program_title)
-        expected = "2025年4月10日"
+        expected = "2025年10月9日"
         self.assertEqual(result, expected)
 
     def test_parse_date_text(self):
@@ -39,11 +39,12 @@ class TestEpisodeProcessor(unittest.TestCase):
         self.assertEqual(result, expected)
 
     def test_extract_episode_url(self):
-        """エピソードURLの抽出テスト"""
-        expected_url = "https://example.com/episode/1"
-        mock_element = self.create_mock_element(href=expected_url)
+        """エピソードURLの抽出テスト（新しいNHK ONE構造対応）"""
+        expected_url = "https://www.web.nhk/tv/an/catchsekai/pl/series-tep-KQ2GPZPJWM/ep/J5LMJ1G4W4"
+        mock_a_element = self.create_mock_element(href=expected_url)
+
         mock_episode = MagicMock()
-        mock_episode.find_element.return_value = mock_element
+        mock_episode.find_element.return_value = mock_a_element
 
         result = self.processor.extract_episode_url(mock_episode, self.program_title)
         self.assertEqual(result, expected_url)
@@ -59,14 +60,17 @@ class TestEpisodeProcessor(unittest.TestCase):
 
     @patch('selenium.webdriver.support.ui.WebDriverWait')
     def test_extract_episode_title(self, mock_wait):
-        """エピソードタイトル抽出のテスト"""
-        expected_title = "テストエピソード"
+        """エピソードタイトル抽出のテスト（新しいNHK ONE構造対応）"""
+        expected_title = "キャッチ!世界のトップニュース"
         mock_element = MagicMock()
         mock_element.text = expected_title
-        mock_wait.return_value.until.return_value = mock_element
+
+        # WebDriverWaitのモック設定
+        mock_wait_instance = MagicMock()
+        mock_wait_instance.until.return_value = mock_element
+        mock_wait.return_value = mock_wait_instance
 
         mock_driver = MagicMock()
-        mock_driver.find_element.return_value.text = expected_title
         result = self.processor.extract_episode_title(mock_driver)
         self.assertEqual(result, expected_title)
 
@@ -81,10 +85,9 @@ class TestEpisodeProcessor(unittest.TestCase):
         self.assertIsNone(result)
         self.logger.warning.assert_called_once()
     def test_find_episode_elements(self):
-        """エピソード要素リスト取得のテスト"""
+        """エピソード要素リスト取得のテスト（新しいNHK ONE構造対応）"""
         expected_elements = [MagicMock(), MagicMock()]
         mock_driver = MagicMock()
-        mock_driver.find_elements.return_value = expected_elements
 
         # document.readyStateの戻り値を設定
         mock_driver.execute_script.return_value = "complete"
