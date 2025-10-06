@@ -251,7 +251,7 @@ python main.py --all --debug
 #### 機能
 
 ##### コード構造
-
+z bi
 - **定数定義**: 番組名などの設定を`PROGRAM_NAMES`として定数化し、保守性を向上
 - **ユーティリティ関数**:
   - `create_search_queries`: API 用と X 検索窓用のクエリを生成
