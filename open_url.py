@@ -8,27 +8,32 @@ from common.utils import setup_logger, parse_programs_config, Constants
 
 logger = logging.getLogger(__name__)
 
-def extract_urls_from_file(file_path: str) -> list[str]:
-    """テキストファイルからURLを抽出する"""
-    urls = []
-    try:
-        with open(file_path, 'r', encoding='utf-8') as file:
-            for line in file:
-                url_matches = re.findall(r'https?://[^\s"\'<>]+', line)
-                if url_matches:
-                    for url in url_matches:
-                        cleaned_url = url.rstrip('。、」)')
-                        urls.append(cleaned_url)
-        logger.info(f"ファイル {file_path} からURL ({len(urls)}件) を抽出しました。")
-    except FileNotFoundError:
-        logger.error(f"ファイル {file_path} が見つかりませんでした。")
-        raise
-    except Exception as e:
-        logger.error(f"ファイル {file_path} からのURL抽出中にエラーが発生しました: {e}", exc_info=True)
-        raise
-    unique_urls = sorted(list(set(urls)))
-    logger.info(f"重複を除いたユニークなURLは {len(unique_urls)} 件です。")
-    return unique_urls
+def extract_content_type_from_url(url: str) -> str:
+    """URLからWBSコンテンツタイプを抽出する"""
+    # WBS関連のURLパターンをチェック
+    patterns = [
+        (r'/wbs/feature/', 'feature'),
+        (r'/wbs/oa/', 'oa'),
+        (r'/wbs/trend_tamago/', 'trend_tamago')
+    ]
+
+    for pattern, content_type in patterns:
+        if pattern in url:
+            return content_type
+
+    return 'unknown'
+
+
+def get_wbs_content_types_from_urls(block_urls: list[str]) -> set[str]:
+    """ブロック内のURLからWBSコンテンツタイプを抽出する"""
+    content_types = set()
+
+    for url in block_urls:
+        content_type = extract_content_type_from_url(url)
+        if content_type != 'unknown':
+            content_types.add(content_type)
+
+    return content_types
 
 
 def open_urls_from_config(config_programs: dict, program_name: str, block_urls: list[str]) -> bool:
@@ -51,23 +56,56 @@ def open_urls_from_config(config_programs: dict, program_name: str, block_urls: 
         logger.error(f"'{program_name}' の設定データ形式が不正です。")
         return False
 
-    # --- 2. 一覧ページを開く (もしあれば) ---
+    # --- 2. WBS番組の場合の特別処理 ---
+    wbs_pages_to_open = [] # 開くべきWBSページのリスト
+
     if list_page_urls:
-        list_page_url_to_open = list_page_urls[0] # デフォルト
         try:
             # 定数が存在する場合のみWBS判定を行う
             if hasattr(Constants, 'Program') and hasattr(Constants.Program, 'WBS_PROGRAM_NAME'):
                 wbs_program_name = Constants.Program.WBS_PROGRAM_NAME
-                if program_name == wbs_program_name and len(list_page_urls) > 1:
-                    if any("trend_tamago" in detail_url for detail_url in block_urls):
-                        list_page_url_to_open = list_page_urls[1]
-                        logger.debug("トレたまURLが含まれるため、WBS一覧ページを2番目のURLに変更。")
+                if program_name == wbs_program_name:
+                    # WBS番組の場合、コンテンツタイプに基づいて適切なページを選択
+                    content_types = get_wbs_content_types_from_urls(block_urls)
+
+                    logger.debug(f"WBSコンテンツタイプ検出: {content_types}")
+
+                    if content_types:
+                        # 各コンテンツタイプに対応するページをリストアップ
+                        for content_type in content_types:
+                            if content_type == 'feature' and len(list_page_urls) > 0:
+                                wbs_pages_to_open.append(list_page_urls[0])
+                            elif content_type == 'trend_tamago' and len(list_page_urls) > 1:
+                                wbs_pages_to_open.append(list_page_urls[1])
+                            elif content_type == 'oa' and len(list_page_urls) > 2:
+                                wbs_pages_to_open.append(list_page_urls[2])
+
+                        if wbs_pages_to_open:
+                            logger.info(f"WBS番組: コンテンツタイプ別ページを開きます - {len(wbs_pages_to_open)}件")
+                        else:
+                            logger.warning("WBS番組: 適切なコンテンツタイプが見つかりませんでした")
+                    else:
+                        logger.debug("WBS番組: ブロック内にWBS関連URLが見つかりませんでした")
+
+                # WBS番組以外の場合の処理
+                if program_name != wbs_program_name or not wbs_pages_to_open:
+                    list_page_url_to_open = list_page_urls[0] if list_page_urls else None
             else:
                 logger.debug("Constants.Program.WBS_PROGRAM_NAME未定義のためWBS判定スキップ。")
-        except Exception as e:
-            logger.error(f"WBS判定中にエラー: {e}", exc_info=True)
+                list_page_url_to_open = list_page_urls[0] if list_page_urls else None
 
-        if list_page_url_to_open: # URLが実際に特定できたか確認
+        except Exception as e:
+            logger.error(f"WBSコンテンツタイプ処理中にエラー: {e}", exc_info=True)
+            list_page_url_to_open = list_page_urls[0] if list_page_urls else None
+
+        # WBS番組で複数のページを開く場合
+        if wbs_pages_to_open:
+            for i, page_url in enumerate(wbs_pages_to_open):
+                logger.info(f"WBS番組ページ {i+1}/{len(wbs_pages_to_open)} を開きます: {page_url}")
+                webbrowser.open(page_url)
+                opened_any_url = True
+        # 通常の番組またはWBSでページが選択された場合
+        elif list_page_url_to_open:
             logger.info(f"'{program_name}' の一覧ページを開きます: {list_page_url_to_open}")
             webbrowser.open(list_page_url_to_open)
             opened_any_url = True

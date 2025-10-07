@@ -8,6 +8,7 @@
 - 関連ツイートの取得
 - コンテンツのマージと最適化
 - X（旧 Twitter）への投稿
+- **WBS番組のコンテンツタイプ別ページオープン**（feature/oa/trend_tamago）
 
 ## インストール
 
@@ -39,29 +40,39 @@
 ### メインコマンド
 
 ````bash
-# 基本形式
-python main.py --date YYYYMMDD [オプション]
+# 新しいサブコマンド形式（推奨）
+python main.py <command> [YYYYMMDD]
 
-# 例: 2025年8月30日のデータを処理
-python main.py --date 20250830
+# 従来のオプション形式（後方互換）
+python main.py --<command> [--date YYYYMMDD]
 
-# 年を2桁で指定（25年8月30日）
-python main.py --date 250830
+# 例: 2025年10月3日のデータを処理
+python main.py open 20251003
+# または
+python main.py open --date 20251003
+````
 
-### オプション一覧
+### コマンド一覧
 
-| オプション | 説明 |
-|------------|------|
-| `--scrape` | スクレイピングのみ実行 |
-| `--get-tweets` | ツイート取得のみ実行 |
-| `--merge` | マージのみ実行 |
-| `--split` | 分割のみ実行 |
-| `--open` | URLをブラウザで開く |
-| `--tweet` | ツイート投稿のみ実行 |
-| `--all` | 全ステップ実行（スクレイピング→ツイート取得→マージ→分割） |
-| `--date YYYYMMDD` | 処理する日付を指定（例: `--date 20250830`） |
-| `--debug` | デバッグモードで実行 |
-| `--help` | ヘルプを表示 |
+| コマンド | 説明 |
+|----------|------|
+| `all` | 全ステップを実行（スクレイピング→ツイート取得→マージ→分割→URLオープン） |
+| `scrape` | スクレイピングのみ実行 |
+| `get-tweets` | ツイート取得のみ実行 |
+| `merge` | マージのみ実行 |
+| `split` | 分割のみ実行 |
+| `open` | URLをブラウザで開く（日付は位置引数または`--date`オプションで指定） |
+| `tweet` | ツイート投稿のみ実行 |
+
+### WBS番組の処理について
+
+このツールは、テレビ東京の「WBS」番組に対して特別な処理を実装しています：
+
+- **コンテンツタイプ自動検出**: ブロック内のURLからコンテンツタイプ（feature/oa/trend_tamago）を自動検出
+- **複数ページ同時オープン**: 検出された複数のコンテンツタイプに対応するページを個別に開く
+- **URLパターンマッチング**: URL構造（`/wbs/feature/`、`/wbs/oa/`、`/wbs/trend_tamago/`）に基づいて正確に判定
+
+例：ブロック内にfeatureとoaの両方のURLが含まれる場合、両方のページが自動的に開かれます。
 
 ### 出力ファイル
 
@@ -70,7 +81,7 @@ python main.py --date 250830
 - 分割前のバックアップ: `output/YYYYMMDD_before-split.txt`
 - ツイート用テキスト: `output/YYYYMMDD_tweet.txt`
 
-### 実行例（サブコマンド）
+### 実行例（サブコマンド形式）
 
 #### 通常の実行（前日のデータを処理）
 ```bash
@@ -86,31 +97,40 @@ python main.py open
 
 # ツイートを投稿する場合
 python main.py tweet
-````
+```
 
 #### 特定の日付を処理
-
 ```bash
-# 2025-08-30 のデータを処理（全ステップ）
-python main.py all --date 20250830
+# 2025-10-03 のデータを処理（全ステップ）
+python main.py all 20251003
+
+# URLのみを開く場合
+python main.py open 20251003
 
 # 特定のステップのみ実行
-python main.py scrape --date 20250830
-python main.py tweet --date 20250830
+python main.py scrape 20251003
+python main.py tweet 20251003
+```
+
+#### オプション形式（後方互換）
+```bash
+# 従来のオプション形式でも動作します
+python main.py all --date 20251003
+python main.py open --date 20251003
 ```
 
 #### デバッグモード
-
 ```bash
 # デバッグ情報を表示しながら実行
-python main.py all --date 20250830 --debug
+python main.py all 20251003 --debug
 ```
 
 他番組/VOD/不正 URL のスキップ詳細ログは、DEBUG レベル時のみ表示されます（通常は非表示）。
 
 ### オプション
 
-- `--date YYYYMMDD`: 処理する日付を指定（デフォルト: 前日）
+- `YYYYMMDD`: 処理する日付を位置引数で指定（サブコマンド形式）
+- `--date YYYYMMDD`: 処理する日付をオプションで指定（後方互換）
 - `--debug`: デバッグモードで実行（詳細なログを表示）
 - `--help`: ヘルプを表示（全体/各コマンド）
 
