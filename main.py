@@ -404,13 +404,18 @@ def parse_args() -> argparse.Namespace:
     subparsers = parser.add_subparsers(dest='command', metavar='command', help='実行するコマンド')
     subparsers.required = False  # 後方互換のため、ここでは必須にしない
 
-    # 各コマンド
+    # 各コマンド（日付を位置引数として受け付ける）
     subparsers.add_parser('all', parents=[common], help='全ステップを実行（スクレイピング→ツイート取得→マージ→分割→URLオープン）')
     subparsers.add_parser('scrape', parents=[common], help='スクレイピングのみ実行')
     subparsers.add_parser('get-tweets', parents=[common], help='ツイート取得のみ実行')
     subparsers.add_parser('merge', parents=[common], help='マージのみ実行')
     subparsers.add_parser('split', parents=[common], help='分割のみ実行')
-    subparsers.add_parser('open', parents=[common], help='URLオープンのみ実行')
+
+    # openコマンドは日付を位置引数として受け付ける特別なパーサ
+    open_parser = subparsers.add_parser('open', help='URLオープンのみ実行')
+    open_parser.add_argument('date', nargs='?', help='処理する日付 (YYYYMMDD形式、指定なしの場合は前日)')
+    open_parser.add_argument('--debug', action='store_true', help='デバッグモードで実行（詳細なログを表示）')
+
     subparsers.add_parser('tweet', parents=[common], help='ツイート投稿のみ実行')
 
     # 後方互換: 旧フラグを受け付ける（使用時は警告を表示）
@@ -528,7 +533,13 @@ def main() -> int:
         elif args.command == 'split':
             success = run_split(target_date)
         elif args.command == 'open':
-            success = run_open_urls(target_date)
+            # openコマンドの場合、位置引数で日付が指定されている可能性がある
+            if hasattr(args, 'date') and args.date:
+                success = run_open_urls(args.date)
+            else:
+                # 日付が指定されていない場合はデフォルト日付を使用
+                target_date = get_target_date(args.date)
+                success = run_open_urls(target_date)
         elif args.command == 'tweet':
             success = run_tweet(target_date)
         else:
