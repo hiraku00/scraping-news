@@ -76,7 +76,7 @@ def run_command(command: List[str], cwd: Optional[str] = None) -> bool:
             bufsize=1,
             universal_newlines=True
         )
-        
+
         # リアルタイムで出力を表示
         while True:
             output = process.stdout.readline()
@@ -84,9 +84,9 @@ def run_command(command: List[str], cwd: Optional[str] = None) -> bool:
                 break
             if output:
                 print(output.strip(), flush=True)
-        
+
         return process.returncode == 0
-        
+
     except Exception as e:
         logger.error(f"Unexpected error: {str(e)}")
         return False
@@ -94,7 +94,7 @@ def run_command(command: List[str], cwd: Optional[str] = None) -> bool:
 
 def get_target_date(date_str: Optional[str] = None) -> str:
     """日付文字列を検証し、フォーマットして返します。
-    
+
     Args:
         date_str: 日付文字列（YYYYMMDD形式）。Noneの場合は前日の日付を使用。
     """
@@ -106,7 +106,7 @@ def get_target_date(date_str: Optional[str] = None) -> str:
         except ValueError:
             logger.error(f"無効な日付形式です。YYYYMMDD形式で指定してください。入力値: {date_str}")
             sys.exit(1)
-    
+
     # デフォルトは前日の日付
     yesterday = datetime.now() - timedelta(days=1)
     return yesterday.strftime("%Y%m%d")
@@ -128,32 +128,32 @@ def run_scrape(target_date: str) -> bool:
 
 def get_tweets(target_date: str) -> Optional[bool]:
     """ツイートを取得する
-    
+
     Args:
         target_date: 処理対象の日付 (YYYYMMDD形式)
-        
+
     Returns:
         bool: 成功した場合はTrue、エラーが発生した場合はFalseを返す
         None: ツイートデータが存在しない場合
     """
     logger.info("=== ツイート取得を開始します ===")
     logger.info(f"Fetching tweets for date: {target_date}")
-    
+
     try:
         # 直接get_tweet.pyのmain関数を呼び出す
         from get_tweet import main as get_tweet_main
         result = get_tweet_main(target_date)
-        
+
         if result is None:
             logger.info("ツイートデータが存在しないためスキップします")
             return None
         elif result is False:
             logger.error("ツイート取得中にエラーが発生しました")
             return False
-            
+
         logger.info("ツイートの取得が完了しました")
         return True
-        
+
     except Exception as e:
         logger.error(f"ツイート取得中に予期せぬエラーが発生しました: {str(e)}")
         logger.error(traceback.format_exc())
@@ -165,23 +165,23 @@ def run_merge(target_date: str) -> bool:
     logger.info(f"Merging content for date: {target_date}")
     try:
         from merge_text import sort_and_merge_text
-        
+
         # ファイルパスを生成
         base_dir = 'output'
         file1_path = os.path.join(base_dir, f"{target_date}_tweet.txt")
         file2_path = os.path.join(base_dir, f"{target_date}.txt")
         output_path = os.path.join(base_dir, f"{target_date}.txt")  # マージ結果は元のファイル名で上書き
         before_merge_path = os.path.join(base_dir, f"{target_date}_before-merge.txt")
-        
+
         if not os.path.exists(file1_path) or not os.path.exists(file2_path):
             logger.error(f"Required files not found: {file1_path} or {file2_path}")
             return False
-        
+
         # 直接sort_and_merge_text関数を呼び出す
         sort_and_merge_text(file1_path, file2_path, output_path, before_merge_path)
         logger.info("マージ処理が正常に完了しました。")
         return True
-        
+
     except Exception as e:
         logger.error(f"Merge failed: {str(e)}")
         logger.error(traceback.format_exc())
@@ -190,54 +190,54 @@ def run_merge(target_date: str) -> bool:
 
 def run_split(target_date: str) -> bool:
     """テキスト分割を実行します。
-    
+
     split_text.pyの仕様に合わせて、以下のファイル操作を行います：
     - 入力ファイル: output/{target_date}.txt
     - バックアップ: output/{target_date}_before-split.txt (分割が必要な場合のみ)
     - 出力ファイル: output/{target_date}.txt (入力ファイルを上書き)
     """
     from split_text import split_program, split_by_program, count_tweet_length, get_header_length, TWEET_MAX_LENGTH
-    
+
     # ファイルパスの設定
     input_file = os.path.join('output', f"{target_date}.txt")
     backup_file = os.path.join('output', f"{target_date}_before-split.txt")
-    
+
     # 入力ファイルの存在確認
     if not os.path.exists(input_file):
         logger.error(f"ファイル {input_file} が見つかりません。")
         return False
-    
+
     try:
         # ファイルを読み込む
         with open(input_file, 'r', encoding='utf-8') as f:
             content = f.read().strip()
         logger.info(f"ファイル {input_file} を読み込みました。")
-        
+
         # プログラムごとに分割
         programs = split_by_program(content)
         if not programs:
             logger.warning("処理対象のプログラムブロックが見つかりませんでした。")
             return False
-        
+
         # 分割前の文字数チェック
         needs_split = False
         header_length = get_header_length(target_date)
-        
+
         logger.info("\n分割前の文字数チェック:")
         for i, program_text in enumerate(programs):
             length = count_tweet_length(program_text)
             limit = TWEET_MAX_LENGTH - (header_length if i == 0 else 0)
             header_info = f"(ヘッダー長 {header_length} 相当分を考慮)" if i == 0 else ""
             logger.info(f"- ブロック {i+1}: {length} 文字 (制限: {limit}) {header_info}")
-            
+
             if length > limit:
                 logger.warning(f"  -> ブロック {i+1} は文字数制限 ({limit}) を超えているため分割が必要です。")
                 needs_split = True
-        
+
         if not needs_split:
             logger.info("分割は不要でした。ファイルは変更されません。")
             return True
-            
+
         # バックアップを作成（分割が必要な場合のみ）
         try:
             import shutil
@@ -246,7 +246,7 @@ def run_split(target_date: str) -> bool:
         except Exception as e:
             logger.error(f"バックアップ処理中にエラーが発生しました: {e}")
             return False
-        
+
         # 分割処理
         new_tweet_list = []
         try:
@@ -263,13 +263,13 @@ def run_split(target_date: str) -> bool:
                 else:
                     # 分割不要なブロックはそのまま追加
                     new_tweet_list.append(program_text)
-            
+
             # 分割されたテキストをファイルに書き込む (間に空行を入れる)
             content_to_write = "\n\n".join(new_tweet_list) + "\n"
             with open(input_file, 'w', encoding='utf-8') as f:
                 f.write(content_to_write)
             logger.info(f"分割されたツイート ({len(new_tweet_list)}件) は {input_file} に保存しました。")
-            
+
             # 分割後の文字数チェック
             logger.info("\n分割後のテキストチェック:")
             all_ok = True
@@ -280,16 +280,16 @@ def run_split(target_date: str) -> bool:
                 if length > limit:
                     all_ok = False
                 logger.info(f"- ツイート {i+1}: {length} 文字 (制限: {limit}) - {status}")
-            
+
             if not all_ok:
                 logger.warning("分割後も文字数制限を超過しているツイートがあります。")
-            
+
             return True
-            
+
         except Exception as e:
             logger.error(f"分割処理中にエラーが発生しました: {e}")
             logger.error(traceback.format_exc())
-            
+
             # エラー発生時はバックアップから復元を試みる
             try:
                 if os.path.exists(backup_file):
@@ -297,9 +297,9 @@ def run_split(target_date: str) -> bool:
                     logger.info(f"エラー発生のため、バックアップファイル {backup_file} を {input_file} に復元しました。")
             except Exception as restore_error:
                 logger.error(f"バックアップファイルの復元中にエラーが発生しました: {restore_error}")
-            
+
             return False
-            
+
     except Exception as e:
         logger.error(f"処理中にエラーが発生しました: {e}")
         logger.error(traceback.format_exc())
@@ -308,24 +308,24 @@ def run_split(target_date: str) -> bool:
 
 def run_open_urls(target_date: str) -> bool:
     """URLをブラウザで開きます。
-    
+
     元のopen_url.pyの仕様に合わせて、YYYYMMDD形式の日付を引数として渡します。
     """
     print(f"\n=== open_url.py を実行中 (日付: {target_date}) ===\n")
-    
+
     # 日付形式のバリデーション
     import re
     if not re.fullmatch(r"\d{8}", target_date):
         print(f"エラー: 日付の形式が不正です: {target_date} (YYYYMMDD形式で指定してください)")
         return False
-    
+
     try:
         import subprocess
         import sys
-        
+
         # コマンドライン引数を設定
         cmd = [sys.executable, 'open_url.py', target_date]
-        
+
         # サブプロセスとして実行し、標準出力と標準エラーをリアルタイムで表示
         process = subprocess.Popen(
             cmd,
@@ -335,14 +335,14 @@ def run_open_urls(target_date: str) -> bool:
             bufsize=1,
             universal_newlines=True
         )
-        
+
         # プロセスが終了するのを待つ
         return_code = process.wait()
-        
+
         print(f"\n=== open_url.py 終了 (終了コード: {return_code}) ===\n")
-        
+
         return return_code == 0
-        
+
     except Exception as e:
         error_msg = f"URLのオープン中にエラーが発生しました: {str(e)}"
         print(error_msg, file=sys.stderr)
@@ -353,31 +353,31 @@ def run_open_urls(target_date: str) -> bool:
 
 def run_tweet(target_date: str, output_dir: str = "output") -> bool:
     """ツイートを投稿します。
-    
+
     Args:
         target_date (str): ツイート対象の日付 (YYYYMMDD形式)
         output_dir (str, optional): 出力ディレクトリのパス。デフォルトは"output"。
-        
+
     Returns:
         bool: ツイートが成功した場合はTrue、それ以外はFalse
     """
     logger.info(f"=== tweet 処理開始 ===")
     logger.info(f"対象日付: {target_date}")
-    
+
     try:
         from tweet import main as tweet_main
-        
+
         # ファイルパスを {output_dir}/YYYYMMDD.txt に修正
         tweet_file = os.path.join(output_dir, f"{target_date}.txt")
-        
+
         if not os.path.exists(tweet_file):
             logger.error(f"ファイル {tweet_file} が見つかりません。")
             return False
-        
+
         # ロガーのレベルを一時的に変更して詳細なログを表示
         original_level = logger.level
         logger.setLevel(logging.INFO)
-        
+
         try:
             # tweet.main() を直接呼び出し、日付と出力ディレクトリを引数として渡す
             tweet_main(date=target_date, output_dir=output_dir)
@@ -385,7 +385,7 @@ def run_tweet(target_date: str, output_dir: str = "output") -> bool:
         finally:
             # 元のログレベルに戻す
             logger.setLevel(original_level)
-            
+
     except Exception as e:
         logger.error(f"ツイート投稿中にエラーが発生しました: {str(e)}", exc_info=True)
         return False
@@ -464,19 +464,19 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     """メイン関数。"""
     args = parse_args()
-    
+
     # デバッグモードの設定
     if args.debug:
         logger.setLevel(logging.DEBUG)
         logger.debug("Debug mode enabled")
-    
+
     # ターゲット日付の取得
     target_date = get_target_date(args.date)
     logger.info(f"Processing date: {target_date}")
-    
+
     # 各アクションの実行（サブコマンドに基づく）
     success = True
-    
+
     try:
         if args.command == 'all':
             # スクレイピング実行
@@ -486,7 +486,7 @@ def main() -> int:
                 success = False
             else:
                 logger.info("=== スクレイピングが完了しました ===\n")
-            
+
             # ツイート取得実行（失敗しても処理は続行）
             logger.info("=== ツイート取得を開始します ===")
             tweets_result = get_tweets(target_date)
@@ -495,7 +495,7 @@ def main() -> int:
                 success = False
             else:
                 logger.info("=== ツイート取得が完了しました ===\n")
-            
+
             # マージ実行（ツイートデータがあればマージ）
             logger.info("=== マージを開始します ===")
             if tweets_result is True:  # ツイートデータがある場合のみマージ
@@ -506,7 +506,7 @@ def main() -> int:
                     logger.info("=== マージが完了しました ===\n")
             else:
                 logger.info("マージ対象のツイートデータがないためスキップします\n")
-            
+
             # 分割実行（マージされたファイルを分割）
             logger.info("=== 分割を開始します ===")
             if not run_split(target_date):
@@ -514,7 +514,7 @@ def main() -> int:
                 success = False
             else:
                 logger.info("=== 分割が完了しました ===\n")
-                
+
             # URLオープン実行
             logger.info("=== URLオープンを開始します ===")
             if not run_open_urls(target_date):
@@ -522,7 +522,7 @@ def main() -> int:
                 success = False
             else:
                 logger.info("=== URLオープンが完了しました ===\n")
-        
+
         # 個別のアクション
         elif args.command == 'scrape':
             success = run_scrape(target_date)
@@ -549,10 +549,10 @@ def main() -> int:
         if not success:
             logger.error("処理が失敗しました")
             return 1
-        
+
         logger.info("処理が正常に完了しました")
         return 0
-        
+
     except Exception as e:
         logger.error(f"予期しないエラーが発生しました: {str(e)}", exc_info=args.debug)
         return 1
