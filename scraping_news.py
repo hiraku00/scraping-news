@@ -854,8 +854,9 @@ def main():
     global_logger.info(f"対象日付: {target_date}")
 
     try:
-        nhk_programs = parse_programs_config('ini/nhk_config.ini')
-        tvtokyo_programs = parse_programs_config('ini/tvtokyo_config.ini')
+        target_year = target_date[:4]
+        nhk_programs = parse_programs_config('ini/nhk_config.ini', target_year=target_year)
+        tvtokyo_programs = parse_programs_config('ini/tvtokyo_config.ini', target_year=target_year)
 
         if not nhk_programs and not tvtokyo_programs:
             global_logger.error("設定ファイルの読み込みに失敗したか、設定が空です。処理を終了します。")

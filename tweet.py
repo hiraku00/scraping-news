@@ -316,7 +316,7 @@ def main(date=None, output_dir="output"):
         # コマンドライン引数から日付を取得
         if len(sys.argv) < 2:
             global_logger.error("日付引数がありません。")
-            print("使用方法: python tweet.py <日付 (例: 20250129)>")
+            print("使用方法: python tweet.py <日付 (例: 20250115)>")
             return 1
         date = sys.argv[1]
     global_logger.info("=== tweet 処理開始 ===")

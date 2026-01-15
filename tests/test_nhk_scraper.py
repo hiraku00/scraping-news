@@ -2,7 +2,6 @@ import unittest
 from unittest.mock import MagicMock, patch
 from datetime import datetime
 from scraping_news import NHKScraper
-from common.utils import extract_program_time_info
 
 class TestNHKScraper(unittest.TestCase):
     def setUp(self):
@@ -50,8 +49,7 @@ class TestNHKScraper(unittest.TestCase):
         result = self.scraper._extract_nhk_episode_info(mock_driver, target_date, program_title)
         self.assertIsNone(result)
 
-    @patch('scraping_news.extract_program_time_info')
-    def test_get_nhk_formatted_episode_info_success(self, mock_extract_time):
+    def test_get_nhk_formatted_episode_info_success(self):
         """エピソード情報のフォーマット処理の正常系テスト"""
         mock_driver = MagicMock()
         program_title = "テスト番組"
@@ -63,7 +61,7 @@ class TestNHKScraper(unittest.TestCase):
         self.scraper.episode_processor.extract_episode_title.return_value = episode_title
         self.scraper._extract_nhk_plus_url = MagicMock(return_value=None)
         self.scraper._process_eyecatch_or_iframe = MagicMock(return_value=None)
-        mock_extract_time.return_value = f"({channel} 22:00-23:00)"
+        self.scraper._extract_time_from_json_ld = MagicMock(return_value="22:00-23:00")
 
         expected = "●テスト番組(NHK 22:00-23:00)\n・テストエピソード\nhttps://example.com/episode/1\n"
 
@@ -95,9 +93,12 @@ class TestNHKScraper(unittest.TestCase):
 
         # 検証
         self.assertIsNotNone(result)
-        self.assertIn(program_name, result)
-        self.assertIn(episode_title, result)
-        self.assertIn(episode_url, result)
+        status, content = result
+        from common.utils import ScrapeStatus
+        self.assertEqual(status, ScrapeStatus.SUCCESS)
+        self.assertIn(program_name, content)
+        self.assertIn(episode_title, content)
+        self.assertIn(episode_url, content)
 
     def test_get_program_info_invalid_config(self):
         """無効な設定での get_program_info のテスト"""
@@ -105,7 +106,10 @@ class TestNHKScraper(unittest.TestCase):
         target_date = "20250410"
 
         result = self.scraper.get_program_info(program_name, target_date)
-        self.assertIsNone(result)
+        status, content = result
+        from common.utils import ScrapeStatus
+        self.assertEqual(status, ScrapeStatus.FAILURE)
+        self.assertEqual(content, "設定情報が見つかりません")
 
 if __name__ == '__main__':
     unittest.main()

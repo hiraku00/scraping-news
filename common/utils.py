@@ -157,7 +157,7 @@ class WebDriverManager:
             # self.logger を使用
             self.logger.info("Chrome WebDriver を終了しました。")
 
-def parse_programs_config(config_path: str) -> dict | None:
+def parse_programs_config(config_path: str, target_year: str = None) -> dict | None:
     """
     設定ファイルを読み込んで番組情報を辞書形式で返す。
     キーは ini ファイルの 'name' の値を使用する。
@@ -166,6 +166,10 @@ def parse_programs_config(config_path: str) -> dict | None:
     programs = {}
     logger = logging.getLogger(__name__)
     broadcaster_type = None
+
+    # target_year が未指定の場合は現在の年を使用
+    if not target_year:
+        target_year = str(datetime.now().year)
 
     if "nhk" in config_path.lower():
         broadcaster_type = "nhk"
@@ -182,6 +186,12 @@ def parse_programs_config(config_path: str) -> dict | None:
         try:
             # iniファイルから情報を取得（stripで前後の空白除去）
             name_in_config = config.get(section, 'name', fallback='').strip()
+            
+            # {year} プレースホルダーを置換
+            if '{year}' in name_in_config:
+                name_in_config = name_in_config.replace('{year}', target_year)
+                logger.debug(f"番組名を置換しました: {name_in_config}")
+
             url = config.get(section, 'url', fallback='').strip()
 
             # name または url が空の場合はスキップ

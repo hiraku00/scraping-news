@@ -126,12 +126,12 @@ def search_tweets(target_date, user=None, count=10):
         [
             {
                 "created_at": "2025-02-11 10:03:30+00:00",
-                "text": "NHK BS 14日(金) 午前0:45 (13日深夜)\\nＢＳ世界のドキュメンタリー「カラーでよみがえるアメリカ　１９６０年代」\\nhttps://t.co/EBrcrtGW6V",
+                "text": "NHK BS 14日(木) 午前0:45 (13日深夜)\\nＢＳ世界のドキュメンタリー「カラーでよみがえるアメリカ　１９６０年代」\\nhttps://t.co/EBrcrtGW6V",
                 "author_id": 3022192682
             },
             {
                 "created_at": "2025-02-11 10:03:30+00:00",
-                "text": "NHK BS 13日(木) 午前1:35 (12日深夜)\\nＢＳ世界のドキュメンタリー「カラーでよみがえるアメリカ　１９５０年代」\\nhttps://t.co/EBrcrtGW6V",
+                "text": "NHK BS 13日(水) 午前1:35 (12日深夜)\\nＢＳ世界のドキュメンタリー「カラーでよみがえるアメリカ　１９５０年代」\\nhttps://t.co/EBrcrtGW6V",
                 "author_id": 3022192682
             },
             {

@@ -1,5 +1,5 @@
 """
-実際のファイル（20250729.txt）を使用してテストを実行するスクリプト
+実際のファイル（20250114.txt）を使用してテストを実行するスクリプト
 
 このスクリプトは、実際のツイートファイルを使用してテストを実行しますが、
 実際のTwitter APIは呼び出さず、モックを使用します。
@@ -23,12 +23,12 @@ from main import run_tweet
 # 直接実行されたかどうかを判定
 IS_DIRECT_RUN = __name__ == "__main__"
 
-def test_actual_tweet_file(capsys, date_str="250729"):
+def test_actual_tweet_file(capsys, date_str="250114"):
     """実際のツイートファイルを使用してテストを実行
     
     Args:
         capsys: pytestのキャプチャフィクスチャ
-        date_str (str): テスト対象の日付 (YYMMDD形式、デフォルト: 250729)
+        date_str (str): テスト対象の日付 (YYMMDD形式、デフォルト: 250114)
     """
     # テスト用の出力ディレクトリを設定
     output_dir = str(Path(__file__).parent.parent / "output")
@@ -75,10 +75,10 @@ def test_actual_tweet_file(capsys, date_str="250729"):
         # pytest経由の場合はassertで検証
         assert result is True, "テストが失敗しました"
         assert "=== tweet 処理開始 ===" in output, "処理開始メッセージが表示されていません"
-        assert "対象日付: 20250729" in output, "対象日付が表示されていません"
+        assert "対象日付: 20250114" in output, "対象日付が表示されていません"
         
         # 実際のファイルから読み込んだ内容を表示
-        tweet_file = Path(output_dir) / "20250729.txt"
+        tweet_file = Path(output_dir) / "20250114.txt"
         if tweet_file.exists():
             print("\n=== ツイートファイルの内容 ===")
             print(tweet_file.read_text(encoding='utf-8'))
@@ -92,8 +92,8 @@ if __name__ == "__main__":
     import argparse
     
     parser = argparse.ArgumentParser(description='実際のツイートファイルを使用してテストを実行')
-    parser.add_argument('date', nargs='?', default='250729',
-                      help='テスト対象の日付 (YYMMDD形式、デフォルト: 250729)')
+    parser.add_argument('date', nargs='?', default='250114',
+                      help='テスト対象の日付 (YYMMDD形式、デフォルト: 250114)')
     args = parser.parse_args()
     
     print(f"テストを開始します (日付: 20{args.date} 直接実行モード)")

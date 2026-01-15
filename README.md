@@ -228,7 +228,7 @@ python main.py --all --debug
 
     ```ini
     [program_1]
-    name = 国際報道 2025
+    name = 国際報道 {year}
     url = https://www.web.nhk/tv/an/kokusaihoudou/pl/series-tep-8M689W8RVX
     channel = NHK BS
 
@@ -259,12 +259,12 @@ python main.py --all --debug
 2.  以下のコマンドでスクリプトを実行します。
 
     ```bash
-    python scraping-news.py <取得したい日付(例:20250125)>
+    python scraping_news.py <取得したい日付(例:20250125)>
     ```
 
 3.  スクレイピング結果は `output` ディレクトリに日付ごとのテキストファイルとして保存されます。
 
-### `get-tweet.py`
+### `get_tweet.py`
 
 このスクリプトは、指定されたキーワードと日付に基づいて、X (旧 Twitter) から関連するツイートを検索し、取得したツイートを指定のフォーマットに整形してファイルに保存します。
 
@@ -309,36 +309,36 @@ z bi
 2. 以下のコマンドでスクリプトを実行します。
 
    ```bash
-   python get-tweet.py <検索対象日付(例:20250125)>
+   python get_tweet.py <検索対象日付(例:20250125)>
    ```
 
 3. 検索結果は `output` ディレクトリに `YYYYMMDD_tweet.txt` というファイル名で保存されます。
 
-### `merge-text.py`
+### `merge_text.py`
 
-このスクリプトは、`scraping-news.py` によって生成されたテキストファイルと `get-tweet.py` によって生成されたテキストファイルを読み込み、時間でソートしてマージします。
+このスクリプトは、`scraping_news.py` によって生成されたテキストファイルと `get_tweet.py` によって生成されたテキストファイルを読み込み、時間でソートしてマージします。
 
 #### 機能
 
-- **2 つのテキストファイルのマージ**: `scraping-news.py` の出力 (`YYYYMMDD.txt`) と `get-tweet.py` の出力 (`YYYYMMDD_tweet.txt`) をマージします。
+- **2 つのテキストファイルのマージ**: `scraping_news.py` の出力 (`YYYYMMDD.txt`) と `get_tweet.py` の出力 (`YYYYMMDD_tweet.txt`) をマージします。
 - **時間によるソート**: マージされたテキストを、`common/utils.py`の`sort_blocks_by_time`関数を使って時間順にソートします。
 - **リネーム処理**: `YYYYMMDD.txt` は処理前に `YYYYMMDD_before-merge.txt` にリネーム（バックアップ）されます。
 - **エラーハンドリング**: ファイルが存在しない場合や、ファイル読み書き中にエラーが発生した場合に、エラーメッセージを表示し、例外を発生させます。
 
 #### 使い方
 
-1.  `scraping-news.py` と `get-tweet.py` を実行して、`output` ディレクトリにそれぞれの出力ファイルを作成します。
+1.  `scraping_news.py` と `get_tweet.py` を実行して、`output` ディレクトリにそれぞれの出力ファイルを作成します。
 2.  以下のコマンドでスクリプトを実行します。
 
     ```bash
-    python merge-text.py <日付(例:20250125)>
+    python merge_text.py <日付(例:20250125)>
     ```
 
 3.  マージされたテキストは `output` ディレクトリの `YYYYMMDD.txt` に上書き保存されます。元のファイルは `YYYYMMDD_before-merge.txt` にリネームされます。
 
-### `split-text.py`
+### `split_text.py`
 
-このスクリプトは、`merge-text.py` によって生成されたテキストファイル（または `scraping-news.py` の出力ファイル）を Twitter の文字数制限に合わせて分割します。
+このスクリプトは、`merge_text.py` によって生成されたテキストファイル（または `scraping_news.py` の出力ファイル）を Twitter の文字数制限に合わせて分割します。
 
 #### 機能
 
@@ -350,11 +350,11 @@ z bi
 
 #### 使い方
 
-1.  `merge-text.py` (または `scraping-news.py`) を実行して、`output` ディレクトリにテキストファイルを作成します。
+1.  `merge_text.py` (または `scraping_news.py`) を実行して、`output` ディレクトリにテキストファイルを作成します。
 2.  以下のコマンドでスクリプトを実行します。
 
     ```bash
-    python split-text.py <日付(例:20250125)>
+    python split_text.py <日付(例:20250125)>
     ```
 
 3.  分割されたテキストは `output` ディレクトリの元のファイル (`YYYYMMDD.txt`) に書き戻されます。 分割前のファイルは `YYYYMMDD_before-split.txt` にバックアップされます。
@@ -397,7 +397,7 @@ z bi
 
 #### 依存ライブラリ
 
-- **`scraping-news.py`**
+- **`scraping_news.py`**
 
   - `selenium`
   - `webdriver_manager`
