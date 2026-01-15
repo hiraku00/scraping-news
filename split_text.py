@@ -102,7 +102,7 @@ if __name__ == "__main__":
 
     if len(sys.argv) < 2:
         global_logger.error("日付引数がありません。")
-        print("使用方法: python split-text.py <日付 (例: 20250129)>")
+        print("使用方法: python split-text.py <日付 (例: 20250115)>")
         sys.exit(1)
 
     date = sys.argv[1]
