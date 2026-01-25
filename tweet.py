@@ -13,24 +13,24 @@ def setup_logging():
     """ロギングの設定を行う"""
     # ルートロガーを取得
     logger = logging.getLogger()
-    
+
     # 既存のハンドラをクリア
     logger.handlers = []
-    
+
     # ログレベルの設定
     logger.setLevel(logging.INFO)
-    
+
     # コンソールハンドラの設定
     console_handler = logging.StreamHandler()
     console_handler.setLevel(logging.INFO)
-    
+
     # フォーマッタの設定
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     console_handler.setFormatter(formatter)
-    
+
     # ハンドラを追加
     logger.addHandler(console_handler)
-    
+
     return logger
 
 # ロガーの初期化
@@ -275,7 +275,7 @@ def post_tweet_with_retry(client, text, in_reply_to_tweet_id=None, max_retries=3
 
 def main(date=None, output_dir="output"):
     """メイン処理を実行する関数
-    
+
     Args:
         date (str, optional): 処理対象の日付 (YYYYMMDD形式)。
                              指定がない場合はコマンドライン引数から取得します。
@@ -359,7 +359,7 @@ def main(date=None, output_dir="output"):
     global_logger.info(f"📝 1/{len(tweets_to_post)} 件目のツイート内容:")
     global_logger.info(first_tweet_text)
     global_logger.info("-" * 50)
-    
+
     thread_start_id = post_tweet_with_retry(client, text=first_tweet_text)
 
     if not thread_start_id:
@@ -381,7 +381,7 @@ def main(date=None, output_dir="output"):
         global_logger.info(f"📝 {i}/{len(tweets_to_post)} 件目のツイート内容 (返信先: {last_tweet_id}):")
         global_logger.info(text)
         global_logger.info("-" * 50)
-        
+
         new_tweet_id = post_tweet_with_retry(client, text=text, in_reply_to_tweet_id=last_tweet_id)
 
         if new_tweet_id:
