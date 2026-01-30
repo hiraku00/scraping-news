@@ -35,6 +35,7 @@ class Constants:
         SLEEP_SECONDS = 2 # URLを開く際の待機時間
         DEFAULT_TIMEOUT = 10 # デフォルトのタイムアウト時間
         SHORT_TIMEOUT = 5 # 短めのタイムアウトを追加 (必要に応じて調整)
+        PAGE_LOAD_TIMEOUT = 30  # driver.get のページ読み込みタイムアウト（秒）
 
     class Program:
         """番組関連の定数"""
@@ -142,7 +143,18 @@ class WebDriverManager:
         """コンテキストに入ったときにWebDriverを作成する"""
         try:
             self.driver = webdriver.Chrome(options=self.options)
-            # self.logger を使用
+            # WebDriverの基本タイムアウトを設定
+            try:
+                # ページ読み込みタイムアウト（長時間ブロックされるのを防ぐ）
+                self.driver.set_page_load_timeout(Constants.Time.PAGE_LOAD_TIMEOUT)
+                # スクリプトタイムアウトも設定
+                self.driver.set_script_timeout(Constants.Time.PAGE_LOAD_TIMEOUT)
+                # 暗黙的待機
+                self.driver.implicitly_wait(Constants.Time.SHORT_TIMEOUT)
+            except Exception:
+                # ドライバによってはこれらの設定が使用できない場合があるため無視
+                pass
+
             self.logger.info("Chrome WebDriver を作成しました。")
             return self.driver
         except Exception as e:

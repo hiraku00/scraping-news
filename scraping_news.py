@@ -385,7 +385,12 @@ class TVTokyoScraper(BaseScraper):
 
         for target_url in target_urls:
             try:
-                driver.get(target_url)
+                try:
+                    driver.get(target_url)
+                except TimeoutException as te:
+                    # ページ読み込みが長時間ブロックされる場合は早期にスキップ
+                    self.logger.warning(f"{program_name} のページ読み込みがタイムアウトしました: {target_url} - {te}")
+                    continue
                 # 対象番組の一覧コンテナが表示されるまで待機
                 try:
                     WebDriverWait(driver, Constants.Time.DEFAULT_TIMEOUT).until(
