@@ -391,9 +391,9 @@ class TVTokyoScraper(BaseScraper):
                     # ページ読み込みが長時間ブロックされる場合は早期にスキップ
                     self.logger.warning(f"{program_name} のページ読み込みがタイムアウトしました: {target_url} - {te}")
                     continue
-                # 対象番組の一覧コンテナが表示されるまで待機
+                # 対象番組の一覧コンテナが表示されるまで待機（TV東京のページは重いため長めに設定）
                 try:
-                    WebDriverWait(driver, Constants.Time.DEFAULT_TIMEOUT).until(
+                    WebDriverWait(driver, Constants.Time.TVTOKYO_ELEMENT_TIMEOUT).until(
                         EC.presence_of_element_located((By.CSS_SELECTOR, Constants.CSSSelector.TVTOKYO_LIST_CONTAINER))
                     )
                 except TimeoutException:
@@ -404,7 +404,7 @@ class TVTokyoScraper(BaseScraper):
                 # リストの最後の要素が 'visibility' (表示状態) になるまで待つ
                 try:
                     # コンテナ配下のアイテム件数が > 0 になるまで待機（可視待機より直接的）
-                    WebDriverWait(driver, Constants.Time.DEFAULT_TIMEOUT).until(
+                    WebDriverWait(driver, Constants.Time.TVTOKYO_ELEMENT_TIMEOUT).until(
                         lambda d: len(d.find_element(By.CSS_SELECTOR, Constants.CSSSelector.TVTOKYO_LIST_CONTAINER)
                                        .find_elements(By.CSS_SELECTOR, Constants.CSSSelector.TVTOKYO_ITEM)) > 0
                     )
