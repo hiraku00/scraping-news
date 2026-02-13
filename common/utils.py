@@ -35,7 +35,7 @@ class Constants:
         SLEEP_SECONDS = 2 # URLを開く際の待機時間
         DEFAULT_TIMEOUT = 10 # デフォルトのタイムアウト時間
         SHORT_TIMEOUT = 5 # 短めのタイムアウトを追加 (必要に応じて調整)
-        PAGE_LOAD_TIMEOUT = 60  # driver.get のページ読み込みタイムアウト（秒）- TV東京のページ対応のため延長
+        PAGE_LOAD_TIMEOUT = 90  # driver.get のページ読み込みタイムアウト（秒）- TV東京のページ対応のため延長
         TVTOKYO_ELEMENT_TIMEOUT = 30  # TV東京の要素待機タイムアウト（秒）- ページが重いため長めに設定
 
     class Program:
@@ -138,6 +138,7 @@ class WebDriverManager:
         options.add_experimental_option('excludeSwitches', ['enable-logging'])
         # Chrome自身のログレベルを設定 (INFO, WARNING, ERROR)
         options.add_argument(f"--log-level={Constants.WebDriver.LOG_LEVEL.lower()}")
+        options.page_load_strategy = 'eager' # DOMが読み込まれたら次に進む
         return options
 
     def __enter__(self):
