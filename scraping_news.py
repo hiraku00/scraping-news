@@ -424,7 +424,12 @@ class TVTokyoScraper(BaseScraper):
                 for episode in episode_elements:
                     try:
                         # 日付要素の取得を試みる
-                        date_elements = episode.find_elements(By.CSS_SELECTOR, Constants.CSSSelector.TVTOKYO_DATE_SPAN)
+                        try:
+                            date_elements = episode.find_elements(By.CSS_SELECTOR, Constants.CSSSelector.TVTOKYO_DATE_SPAN)
+                        except (StaleElementReferenceException, NoSuchElementException):
+                            self.logger.debug(f"要素が古くなったか見つかりません（スキップ） - {program_name}")
+                            continue
+
                         if not date_elements:
                             self.logger.debug(f"日付要素が見つかりませんでした - {program_name} - {target_url}")
                             continue
@@ -875,8 +880,18 @@ def main():
         if total_tasks == 0:
             global_logger.warning("実行するタスクがありません。")
         else:
+            # --- WebDriver ウォームアップ (Selenium Manager の競合回避) ---
+            global_logger.info("WebDriver を初期化しています (ウォームアップ)...")
+            try:
+                with WebDriverManager() as driver:
+                    # 一度ブラウザを開くことでドライバをキャッシュにロードさせる
+                    pass
+            except Exception as e:
+                global_logger.warning(f"WebDriver のウォームアップ中にエラーが発生しました (無視して続行します): {e}")
+
             global_logger.info(f"並列処理を開始します ({total_tasks} タスク)")
-            with multiprocessing.Pool() as pool:
+            pool = multiprocessing.Pool()
+            try:
                 # imap_unordered で FetchResult を受け取る
                 for fetch_result in pool.imap_unordered(fetch_program_info, tasks):
                     processed_tasks += 1
@@ -888,6 +903,21 @@ def main():
                     # 進捗表示 (1行にまとめる)
                     # \r を使って行を上書きすることで、ログが流れすぎるのを防ぐ
                     print(f"\n進捗: {processed_tasks}/{total_tasks} ({progress_message}) （経過時間：{elapsed_time:.0f}秒）", end="")
+
+            except KeyboardInterrupt:
+                global_logger.warning("\nユーザーによって処理が中断されました。プロセスを終了しています...")
+                pool.terminate()
+                pool.join()
+                global_logger.info("すべてのプロセスを終了しました。")
+                sys.exit(130)
+            except Exception as e:
+                global_logger.error(f"\n予期しないエラーが発生しました: {e}", exc_info=True)
+                pool.terminate()
+                pool.join()
+                raise
+            finally:
+                pool.close()
+                pool.join()
 
             print() # \r で上書きした行の後で改行を入れる
             global_logger.info("並列処理が完了しました。")
