@@ -74,19 +74,53 @@ class NHKScraper(BaseScraper):
             return None
 
         driver.get(program_info["url"])
-        episodes = self.episode_processor.find_episode_elements(driver, program_title)
-        if not episodes:
-            return None
-
         target_date_dt = datetime.strptime(target_date, '%Y%m%d')
-        for episode in episodes:
-            episode_date = self.episode_processor.extract_episode_date(episode, program_title)
-            if episode_date and episode_date == target_date_dt:
-                # エピソードタイトルを抽出して保存
-                self.current_episode_title = self.episode_processor.extract_episode_title(episode, program_title)
-                if self.current_episode_title:
-                    self.logger.debug(f"エピソードタイトルを抽出しました: {self.current_episode_title}")
-                return self.episode_processor.extract_episode_url(episode, program_title)
+        
+        # 動的な読み込み（遅延読み込み）に対応するため、スクロールしながら最大3回試行
+        max_scroll_retries = 3
+        processed_episodes_count = 0
+        
+        for retry in range(max_scroll_retries + 1):
+            episodes = self.episode_processor.find_episode_elements(driver, program_title)
+            if not episodes:
+                self.logger.info(f"[{program_title}] エピソードリストが空です (試行 {retry+1})")
+                if retry < max_scroll_retries:
+                    self.logger.debug(f"[{program_title}] リストが空のため、スクロールして再試行します")
+                    driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                    import time
+                    time.sleep(2)
+                    continue
+                return None
+
+            # 現在表示されている全エピソードをチェック
+            for i in range(processed_episodes_count, len(episodes)):
+                episode = episodes[i]
+                episode_date = self.episode_processor.extract_episode_date(episode, program_title)
+                if not episode_date:
+                    continue
+                    
+                if episode_date == target_date_dt:
+                    # エピソードタイトルを抽出して保存
+                    self.current_episode_title = self.episode_processor.extract_episode_title(episode, program_title)
+                    if self.current_episode_title:
+                        self.logger.debug(f"エピソードタイトルを抽出しました: {self.current_episode_title}")
+                    return self.episode_processor.extract_episode_url(episode, program_title)
+                
+                # 降順に並んでいる前提で、対象日より古い日付が出た時点で探索を終了
+                if episode_date < target_date_dt:
+                    self.logger.debug(f"[{program_title}] 対象日より古いエピソードに達しました ({episode_date.strftime('%Y-%m-%d')})。探索を終了します。")
+                    return None
+            
+            # リストの最後まで見たが、まだ対象日より新しい日付しか見つかっていない場合、スクロールして次を読み込む
+            processed_episodes_count = len(episodes)
+            if retry < max_scroll_retries:
+                self.logger.debug(f"[{program_title}] リストの末尾に達しましたが対象日が見つかりません。スクロールして追加読み込みを試みます (現在 {processed_episodes_count}件)")
+                driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                import time
+                time.sleep(2)
+            else:
+                self.logger.info(f"[{program_title}] 最大スクロール回数に達しましたが、対象エピソードは見つかりませんでした。")
+
         return None
 
     def _extract_time_from_json_ld(self, driver) -> Optional[str]:
@@ -95,7 +129,8 @@ class NHKScraper(BaseScraper):
         複数の放送時間が存在する場合、メイン放送（通常は最初の放送）を優先して返す。
         """
         try:
-            script_elements = WebDriverWait(driver, Constants.Time.SHORT_TIMEOUT).until(
+            # 5秒(SHORT_TIMEOUT)だと短い場合があるため、NHK_ELEMENT_TIMEOUTを使用
+            script_elements = WebDriverWait(driver, Constants.Time.NHK_ELEMENT_TIMEOUT).until(
                 EC.presence_of_all_elements_located((By.CSS_SELECTOR, 'script[type="application/ld+json"]'))
             )
 
@@ -249,7 +284,7 @@ class NHKScraper(BaseScraper):
 
     def _process_eyecatch_image(self, driver, program_title: str, episode_url: str) -> str | None:
         # ... (このメソッドは変更なし) ...
-        eyecatch_div = WebDriverWait(driver, Constants.Time.DEFAULT_TIMEOUT).until(
+        eyecatch_div = WebDriverWait(driver, Constants.Time.NHK_ELEMENT_TIMEOUT).until(
             EC.presence_of_element_located((By.CLASS_NAME, Constants.CSSSelector.EYECATCH_IMAGE_DIV))
         )
         a_tag_element = eyecatch_div.find_element(By.TAG_NAME, Constants.CSSSelector.EPISODE_URL_TAG)
@@ -260,7 +295,7 @@ class NHKScraper(BaseScraper):
 
     def _process_iframe_url(self, driver, program_title: str, episode_url: str) -> str | None:
         # ... (このメソッドは変更なし) ...
-        iframe = WebDriverWait(driver, Constants.Time.DEFAULT_TIMEOUT).until(
+        iframe = WebDriverWait(driver, Constants.Time.NHK_ELEMENT_TIMEOUT).until(
             EC.presence_of_element_located((By.ID, Constants.CSSSelector.IFRAME_ID))
         )
         iframe_src = iframe.get_attribute('src')
@@ -421,53 +456,64 @@ class TVTokyoScraper(BaseScraper):
                     continue
 
                 urls_found_on_page = []
+                # 対象日を日付型に変換しておく
+                target_date_dt = datetime.strptime(formatted_date, '%Y.%m.%d').date()
+
                 for episode in episode_elements:
                     try:
                         # 日付要素の取得を試みる
                         try:
                             date_elements = episode.find_elements(By.CSS_SELECTOR, Constants.CSSSelector.TVTOKYO_DATE_SPAN)
+                            if not date_elements:
+                                self.logger.debug(f"日付要素が見つかりませんでした - {program_name} - {target_url}")
+                                continue
+                            
+                            # StaleElement を避けるため、即座にテキストを取得
+                            date_text = date_elements[0].text.strip()
                         except (StaleElementReferenceException, NoSuchElementException):
                             self.logger.debug(f"要素が古くなったか見つかりません（スキップ） - {program_name}")
                             continue
 
-                        if not date_elements:
-                            self.logger.debug(f"日付要素が見つかりませんでした - {program_name} - {target_url}")
-                            continue
-
-                        date_element = date_elements[0]
-                        date_text = date_element.text.strip()
                         self.logger.debug(f"抽出された日付テキスト: '{date_text}' (対象日付: {formatted_date})")
 
-                        # 日付のマッチング確認
+                        # 日付のマッチング確認と「それ以降の探索が必要か」の判定
                         is_matching_date = False
+                        current_date_dt = None
 
                         try:
                             # 相対日付のチェック
-                            if "今日" in date_text and formatted_today == formatted_date:
-                                is_matching_date = True
-                                self.logger.debug("今日の日付と一致しました")
-                            elif "昨日" in date_text and formatted_yesterday == formatted_date:
-                                is_matching_date = True
-                                self.logger.debug("昨日の日付と一致しました")
+                            if "今日" in date_text:
+                                current_date_dt = today
+                                if formatted_today == formatted_date:
+                                    is_matching_date = True
+                            elif "昨日" in date_text:
+                                current_date_dt = yesterday
+                                if formatted_yesterday == formatted_date:
+                                    is_matching_date = True
                             # 絶対日付のチェック（YYYY.MM.DD形式）
-                            elif date_text == formatted_date:
-                                is_matching_date = True
-                                self.logger.debug("絶対日付と一致しました")
+                            elif re.match(r'\d{4}\.\d{2}\.\d{2}', date_text):
+                                try:
+                                    current_date_dt = datetime.strptime(date_text, '%Y.%m.%d').date()
+                                    if date_text == formatted_date:
+                                        is_matching_date = True
+                                except ValueError:
+                                    pass
                             # 日付形式の変換を試行（MM.DD形式の場合）
                             elif len(date_text.split('.')) == 2:
                                 try:
                                     month, day = date_text.split('.')
                                     current_year = datetime.now().year
                                     converted_date = f"{current_year}.{month.zfill(2)}.{day.zfill(2)}"
-                                    self.logger.debug(f"変換された日付: {converted_date}")
+                                    current_date_dt = datetime.strptime(converted_date, '%Y.%m.%d').date()
                                     if converted_date == formatted_date:
                                         is_matching_date = True
-                                        self.logger.debug("変換後の日付が一致しました")
-                                except Exception as e:
-                                    self.logger.debug(f"日付変換中にエラーが発生しました: {e}")
+                                except Exception:
+                                    pass
 
-                            if not is_matching_date:
-                                self.logger.debug(f"日付が一致しませんでした: テキスト='{date_text}', 対象日付='{formatted_date}'")
+                            # 対象日より古い日付が出現した場合は探索を終了 (break)
+                            if current_date_dt and current_date_dt < target_date_dt:
+                                self.logger.debug(f"[{program_name}] 対象日より古いエピソードに達しました ({current_date_dt})。探索を打ち切ります。")
+                                break
 
                         except Exception as e:
                             self.logger.error(f"日付マッチング中にエラーが発生しました: {e}")

@@ -106,20 +106,28 @@ class EpisodeProcessor:
     def get_episode_detail_page(self, driver, episode_url: str):
         """エピソード詳細ページに遷移し、ページの準備完了を待つ"""
         driver.get(episode_url)
-        WebDriverWait(driver, Constants.Time.DEFAULT_TIMEOUT).until(CustomExpectedConditions.page_is_ready())
+        # 詳細ページも重いため、NHK_ELEMENT_TIMEOUTを使用
+        WebDriverWait(driver, Constants.Time.NHK_ELEMENT_TIMEOUT).until(CustomExpectedConditions.page_is_ready())
 
     def find_episode_elements(self, driver, program_title: str):
         """エピソード要素リストを取得する"""
-        WebDriverWait(driver, Constants.Time.DEFAULT_TIMEOUT).until(CustomExpectedConditions.page_is_ready())
-        # 実際の構造ではli要素から検索し、その中のarticle要素を取得
-        li_elements = WebDriverWait(driver, Constants.Time.DEFAULT_TIMEOUT).until(
-            EC.presence_of_all_elements_located((By.CSS_SELECTOR, 'li.esl7kn2s'))
-        )
-        episode_elements = []
-        for li_element in li_elements:
+        try:
             try:
-                # li要素自体がエピソード情報を含む場合
-                episode_elements.append(li_element)
-            except NoSuchElementException:
-                continue
-        return episode_elements
+                WebDriverWait(driver, Constants.Time.DEFAULT_TIMEOUT).until(CustomExpectedConditions.page_is_ready())
+            except TimeoutException:
+                self.logger.debug(f"ページ読み込み待機がタイムアウトしました: {program_title}")
+
+            # 実際の構造ではli要素から検索し、その中のarticle要素を取得
+            try:
+                li_elements = WebDriverWait(driver, Constants.Time.NHK_ELEMENT_TIMEOUT).until(
+                    EC.presence_of_all_elements_located((By.CSS_SELECTOR, 'li.esl7kn2s'))
+                )
+            except TimeoutException:
+                # 放送がない番組などは here に来る
+                self.logger.info(f"[{program_title}] エピソード要素が見つかりませんでした")
+                return []
+                
+            return li_elements
+        except Exception as e:
+            self.logger.error(f"[{program_title}] エピソード要素の取得中に予期せぬエラー: {e}")
+            return []
