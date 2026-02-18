@@ -68,20 +68,7 @@ python main.py open --date 20251003
 
 このツールは、テレビ東京の「WBS」番組に対して特別な処理を実装しています：
 
-- **コンテンツタイプ自動検出**: ブロック内のURLからコンテンツタイプ（feature/oa/trend_tamago）を自動検出
-- **複数ページ同時オープン**: 検出された複数のコンテンツタイプに対応するページを個別に開く
-- **URLパターンマッチング**: URL構造（`/wbs/feature/`、`/wbs/oa/`、`/wbs/trend_tamago/`）に基づいて正確に判定
-
-例：ブロック内にfeatureとoaの両方のURLが含まれる場合、両方のページが自動的に開かれます。
-
-### 出力ファイル
-
-- スクレイピング結果: `output/YYYYMMDD.txt`
-- マージ前のバックアップ: `output/YYYYMMDD_before-merge.txt`
-- 分割前のバックアップ: `output/YYYYMMDD_before-split.txt`
-- ツイート用テキスト: `output/YYYYMMDD_tweet.txt`
-
-### 実行例（サブコマンド形式）
+### 実行例
 
 #### 通常の実行（前日のデータを処理）
 ```bash
@@ -90,12 +77,6 @@ python main.py all
 
 # 個別に実行する場合
 python main.py scrape
-python main.py get-tweets
-python main.py merge
-python main.py split
-python main.py open
-
-# ツイートを投稿する場合
 python main.py tweet
 ```
 
@@ -104,72 +85,36 @@ python main.py tweet
 # 2025-10-03 のデータを処理（全ステップ）
 python main.py all 20251003
 
-# URLのみを開く場合
-python main.py open 20251003
-
-# 特定のステップのみ実行
+# 特定のステップのみ実行（位置引数で日付指定可能）
 python main.py scrape 20251003
-python main.py tweet 20251003
+python main.py open 20251003
 ```
 
-#### オプション形式（後方互換）
+#### 旧スタイル（後方互換）
 ```bash
-# 従来のオプション形式でも動作します
-python main.py all --date 20251003
-python main.py open --date 20251003
+# フラグ形式でも動作しますが、警告が表示されます
+python main.py --all --date 20251003
 ```
 
 #### デバッグモード
 ```bash
-# デバッグ情報を表示しながら実行
-python main.py all 20251003 --debug
+# 詳細なログを表示
+python main.py all --debug
 ```
 
-他番組/VOD/不正 URL のスキップ詳細ログは、DEBUG レベル時のみ表示されます（通常は非表示）。
+### WBS番組の処理について
 
-### オプション
+このツールは、テレビ東京の「WBS」番組に対して特別な処理を実装しています：
 
-- `YYYYMMDD`: 処理する日付を位置引数で指定（サブコマンド形式）
-- `--date YYYYMMDD`: 処理する日付をオプションで指定（後方互換）
-- `--debug`: デバッグモードで実行（詳細なログを表示）
-- `--help`: ヘルプを表示（全体/各コマンド）
+- **コンテンツタイプ自動検出**: ブロック内のURLからコンテンツタイプ（feature/oa/trend_tamago）を自動検出
+- **URLパターンマッチング**: URL構造（`/wbs/feature/`、`/wbs/oa/`、`/wbs/trend_tamago/`）に基づいて正確に判定
 
-### 実行例
+### 出力ファイル
 
-#### 通常の実行（前日のデータを処理）
-
-```bash
-# 全ステップ実行（ツイート投稿は除く）
-python main.py --all
-
-# 個別に実行する場合
-python main.py --scrape
-python main.py --get-tweets
-python main.py --merge
-python main.py --split
-python main.py --open
-
-# ツイートを投稿する場合
-python main.py --tweet
-```
-
-#### 特定の日付を処理
-
-```bash
-# 2025年7月25日のデータを処理
-python main.py --all --date 20250725
-
-# 特定のステップのみ実行
-python main.py --scrape --date 20250725
-python main.py --tweet --date 20250725
-```
-
-#### デバッグモード
-
-```bash
-# デバッグ情報を表示しながら実行
-python main.py --all --debug
-```
+- スクレイピング結果: `output/YYYYMMDD.txt`
+- マージ前のバックアップ: `output/YYYYMMDD_before-merge.txt`
+- 分割前のバックアップ: `output/YYYYMMDD_before-split.txt`
+- ツイート用テキスト: `output/YYYYMMDD_tweet.txt`
 
 ## スクリプトの詳細
 
@@ -202,13 +147,11 @@ python main.py --all --debug
 
 ### スクレイピング機能
 
-`main.py --scrape` オプションを使用すると、NHK とテレビ東京のウェブサイトから指定された日付のニュース番組情報を収集します。
-
-このスクリプトは、NHK とテレビ東京のウェブサイトから指定された日付のニュース番組情報を収集します。`ini`ディレクトリ内の設定ファイルに基づいて、スクレイピング対象の番組を定義します。
+`python main.py scrape` コマンドを使用すると、NHK とテレビ東京のウェブサイトから指定された日付のニュース番組情報を収集します。
 
 #### 機能
 
-- **設定ファイルの利用**: `ini` ディレクトリ内の設定ファイル (`nhk_config.ini`, `tvtokyo_config.ini`) に基づいてスクレイピング対象の番組を定義します。設定ファイルは `common.utils` の `load_config` 関数と、`common.utils`の`parse_nhk_programs_config`、`parse_tvtokyo_programs_config` 関数を使って読み込まれ、設定エラー時にはログが出力されます。
+- **設定ファイルの利用**: `ini` ディレクトリ内の設定ファイル (`nhk_config.ini`, `tvtokyo_config.ini`) に基づいてスクレイピング対象の番組を定義します。設定ファイルは `common.utils` の `parse_programs_config` 関数を使って読み込まれ、設定エラー時にはログが出力されます。
 - **動的なウェブページスクレイピング**: Selenium と Chrome WebDriver を利用して、JavaScript で動的に生成されるウェブページから情報を抽出します。
 - **クラス構成**: `NHKScraper` と `TVTokyoScraper` クラスが `common/base_scraper.py` の `BaseScraper` クラスを継承する形で実装されています。
 - **マルチプロセス**: 複数の番組情報を並行してスクレイピングすることで、処理時間を短縮します。
@@ -217,14 +160,19 @@ python main.py --all --debug
 - **時間順のソート**: スクレイピングした番組情報を時間順にソートして出力します。
 
 - **テレ東抽出の方針**: 対象番組の一覧コンテナー（`div[id^="News_Detail__Videos_"]`）配下のみを走査し、各カード内の `a[href*="/post_"]` を抽出します。抽出した URL は番組名とカテゴリ（例: `/oa` は必須、`/vod` は除外）で検証してから採用します。
-- **安定化戦略**: 
-    - **ページ読み込み戦略 (`eager`)**: テレ東BIZの重いページに対応するため、画像や広告の読み込みを待たずにDOMが読み込まれた時点で処理を開始します。
+- **NHK抽出の安定化**:
+    - **動的リスト読み込み対応**: 画面外にある過去のエピソードも取得できるよう、自動スクロールと再試行（最大3回）を組み合わせて探索します。
+    - **長期タイムアウト**: サイトの負荷状況を考慮し、ページ読み込みタイムアウトを **90秒** に設定しています。
+    - **要素待機**: 一覧および詳細ページでの要素待機タイムアウトを **30秒** に設定しています。
+    - **効率的な探索**: リストが降順であることを前提に、対象日より古いエピソードに達した時点で探索を終了するロジックを搭載しています。
+- **テレ東の安定化**: 
+    - **ページ読み込み戦略 (`eager`)**: テレ東BIZの重いページに対応するため、画像や広告の読み込みを待まずにDOMが読み込まれた時点で処理を開始します。
     - **長期タイムアウト**: サイトの負荷状況を考慮し、ページ読み込みタイムアウトを **90秒** に設定しています。
     - **要素待機**: 一覧コンテナーの出現後、「コンテナー配下のアイテム件数 > 0」になるまで最大30秒待機します。
 
 #### 使い方
 
-1.  `ini`ディレクトリに設定ファイルを作成します（例：`nhk_config.ini`, `tvtokyo_config.ini`）。設定ファイルは `common.utils` の `load_config` 関数、および `parse_nhk_programs_config`, `parse_tvtokyo_programs_config` 関数を使って読み込まれます。
+1.  `ini`ディレクトリに設定ファイルを作成します。 `common.utils` の `parse_programs_config` 関数によって読み込まれます。
 
     - `nhk_config.ini` の例:
 
@@ -344,11 +292,11 @@ z bi
 
 #### 機能
 
-- **文字数制限の考慮**: ツイートの文字数制限（280 文字、全角は 2 文字、半角は 1 文字、URL は 11.5 文字としてカウント）を考慮して、テキストを分割します。
-- **`count_tweet_length`関数**: URL を考慮した文字数計算を、`common.utils`の`count_tweet_length`関数で行います。
-- **番組ごとの分割**: `●` で始まる各番組のブロックを認識し、各ブロックを文字数制限内に収まるように分割します。最初のブロックでは、`common/constants.py`の`get_header_text`関数で生成されるヘッダーの長さも考慮します。
+- **文字数制限の考慮**: ツイートの文字数制限（280文字、全角は2、半角は1、URLは23としてカウント）を考慮して、テキストを分割します。
+- **文字数計算**: `common.utils`の`count_tweet_length`関数で行います。
+- **番組ごとの分割**: `●` で始まる各番組のブロックを認識し、各ブロックを文字数制限内に収まるように分割します。最初のブロックでは、`common/constants.py`の`get_header_length`関数で計算されるヘッダーの長さも考慮します。
 - **ファイルバックアップ**: 分割前のファイルは `YYYYMMDD_before-split.txt` にバックアップされます。
-- **分割が不要な場合は何もしない**: 分割が必要ないと判断した場合は、ファイルを変更しません
+- **分割が不要な場合は何もしない**: 分割が必要ないと判断した場合は、ファイルを変更しません。
 
 #### 使い方
 
