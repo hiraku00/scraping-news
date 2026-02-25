@@ -378,9 +378,15 @@ class TVTokyoScraper(BaseScraper):
         return target_urls
 
     def _fetch_and_format_tvtokyo_episodes(self, driver, program_config: dict, target_urls: List[str], formatted_date: str, program_time: str, program_name: str) -> ScrapeResult:
-        episode_urls = self._extract_tvtokyo_episode_urls(driver, target_urls, formatted_date, program_name)
+        episode_urls, error_count = self._extract_tvtokyo_episode_urls(driver, target_urls, formatted_date, program_name)
+        
+        status_suffix = ""
+        if error_count > 0:
+            status_suffix = f" (注意: {error_count}件のURLで取得失敗)"
+
         if not episode_urls:
-            return ScrapeStatus.NOT_FOUND, f"放送が見つかりませんでした (日付: {formatted_date})"
+            msg = f"放送が見つかりませんでした (日付: {formatted_date}){status_suffix}"
+            return ScrapeStatus.NOT_FOUND, msg
 
         all_formatted_outputs = []
         episode_details = []
@@ -403,16 +409,26 @@ class TVTokyoScraper(BaseScraper):
                 all_formatted_outputs.append(formatted_output)
 
         if not all_formatted_outputs:
-            return ScrapeStatus.FAILURE, "有効なフォーマット済み出力が得られませんでした"
+            return ScrapeStatus.FAILURE, f"有効なフォーマット済み出力が得られませんでした{status_suffix}"
+
+        # 1件以上のエラーがあった場合、メッセージをリストではなく文字列にして、ステータスとして伝える
+        # しかし ScrapeResultData は List[str] を期待することが多いため、
+        # 呼び出し元 (_process_fetch_result) で処理できるように status_suffix を各結果の末尾に仕込むか
+        # あるいは _process_fetch_result 側で制御する。
+        # ここでは all_formatted_outputs の最初の要素にエラー情報を付与する
+        if status_suffix and all_formatted_outputs:
+            all_formatted_outputs[0] += f"\n<!-- error_info: {status_suffix} -->"
 
         return ScrapeStatus.SUCCESS, all_formatted_outputs
 
-    def _extract_tvtokyo_episode_urls(self, driver, target_urls: list[str], formatted_date: str, program_name: str) -> list[str]:
+    def _extract_tvtokyo_episode_urls(self, driver, target_urls: list[str], formatted_date: str, program_name: str) -> tuple[list[str], int]:
         """
         テレビ東京のエピソードURLを抽出する。
         target_urls をリストとして受け取り、各URLに対して処理を行う。
+        戻り値: (見つかったURLのリスト, エラー(タイムアウト等)が発生したURLの数)
         """
         all_urls = []
+        error_count = 0
         today = datetime.now().date()
         yesterday = today - timedelta(days=1)
         formatted_today = format_date(today.strftime('%Y%m%d'))
@@ -433,6 +449,7 @@ class TVTokyoScraper(BaseScraper):
                     )
                 except TimeoutException:
                     self.logger.warning(f"{program_name} の一覧コンテナが見つかりませんでした（タイムアウト） - {target_url}")
+                    error_count += 1
                     continue  # 次のURLへ
 
                 # 動的コンテンツ（特に日付やリンク情報）が読み込まれるのを待機
@@ -447,6 +464,7 @@ class TVTokyoScraper(BaseScraper):
                     self.logger.warning(
                         f"{program_name} のアイテム出現待機でタイムアウトしました - {target_url}"
                     )
+                    error_count += 1
 
                 # 一覧コンテナ配下のアイテムに限定
                 container = driver.find_element(By.CSS_SELECTOR, Constants.CSSSelector.TVTOKYO_LIST_CONTAINER)
@@ -548,11 +566,12 @@ class TVTokyoScraper(BaseScraper):
 
             except Exception as e_outer:
                 self.logger.error(f"URL ({target_url}) の処理中にエラー: {e_outer} - {program_name}", exc_info=True)
+                error_count += 1
 
         # 重複を除去して返す
         unique_urls = sorted(list(set(all_urls)))
         self.logger.debug(f"最終的に抽出されたユニークなエピソードURL: {program_name} - {unique_urls}")
-        return unique_urls
+        return unique_urls, error_count
 
     def _validate_program_url(self, url: str, program_name: str) -> bool:
         """URLが番組のバリデーションルールを満たしているかチェック"""
@@ -870,14 +889,37 @@ def _process_fetch_result(fetch_result: FetchResult, results_list: list[str], lo
 
     if status == ScrapeStatus.SUCCESS:
         result_count = 0
+        error_info = ""
         if isinstance(data_or_message, list):
-            valid_results = [res for res in data_or_message if isinstance(res, str)]
+            valid_results = []
+            for res in data_or_message:
+                if isinstance(res, str):
+                    # error_info が埋め込まれているかチェック
+                    if "<!-- error_info:" in res:
+                        match = re.search(r'<!-- error_info: (.*?) -->', res)
+                        if match:
+                            error_info = match.group(1)
+                        # HTMLコメントを削除して本体のみを保持
+                        res = re.sub(r'\n?<!-- error_info: .*? -->', '', res)
+                    valid_results.append(res)
             results_list.extend(valid_results)
             result_count = len(valid_results)
         elif isinstance(data_or_message, str) and data_or_message:
             results_list.append(data_or_message)
             result_count = 1
-        progress_message = f"{program_name} 完了 ({result_count}件)" if result_count > 0 else f"{program_name} 完了 (データなし)"
+        
+        progress_message = f"{program_name} 完了 ({result_count}件"
+        if error_info:
+            progress_message += f", {error_info.strip(' ()')}"
+        progress_message += ")"
+        if result_count == 0 and not error_info:
+            progress_message = f"{program_name} 完了 (データなし)"
+            
+    elif status == ScrapeStatus.NOT_FOUND:
+        # data_or_message にエラー情報が含まれている可能性がある
+        reason = data_or_message if isinstance(data_or_message, str) else "対象なし"
+        progress_message = f"{program_name} {reason}"
+        
     elif status == ScrapeStatus.FAILURE:
         failure_reason = data_or_message if isinstance(data_or_message, str) else "詳細不明"
         max_len = 60
