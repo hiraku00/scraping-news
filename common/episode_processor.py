@@ -109,8 +109,11 @@ class EpisodeProcessor:
         # 詳細ページも重いため、NHK_ELEMENT_TIMEOUTを使用
         WebDriverWait(driver, Constants.Time.NHK_ELEMENT_TIMEOUT).until(CustomExpectedConditions.page_is_ready())
 
-    def find_episode_elements(self, driver, program_title: str):
+    def find_episode_elements(self, driver, program_title: str, timeout: int = None):
         """エピソード要素リストを取得する"""
+        if timeout is None:
+            timeout = Constants.Time.NHK_ELEMENT_TIMEOUT
+
         try:
             try:
                 WebDriverWait(driver, Constants.Time.DEFAULT_TIMEOUT).until(CustomExpectedConditions.page_is_ready())
@@ -119,12 +122,12 @@ class EpisodeProcessor:
 
             # 実際の構造ではli要素から検索し、その中のarticle要素を取得
             try:
-                li_elements = WebDriverWait(driver, Constants.Time.NHK_ELEMENT_TIMEOUT).until(
+                li_elements = WebDriverWait(driver, timeout).until(
                     EC.presence_of_all_elements_located((By.CSS_SELECTOR, 'li.esl7kn2s'))
                 )
             except TimeoutException:
                 # 放送がない番組などは here に来る
-                self.logger.info(f"[{program_title}] エピソード要素が見つかりませんでした")
+                self.logger.debug(f"[{program_title}] エピソード要素が見つかりませんでした (timeout={timeout}s)")
                 return []
                 
             return li_elements

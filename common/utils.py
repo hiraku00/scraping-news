@@ -35,9 +35,9 @@ class Constants:
         SLEEP_SECONDS = 2 # URLを開く際の待機時間
         DEFAULT_TIMEOUT = 10 # デフォルトのタイムアウト時間
         SHORT_TIMEOUT = 5 # 短めのタイムアウトを追加 (必要に応じて調整)
-        PAGE_LOAD_TIMEOUT = 90  # ページ全体の読み込みタイムアウト（秒）
-        TVTOKYO_ELEMENT_TIMEOUT = 45  # TV東京の要素待機タイムアウト（秒）
-        NHK_ELEMENT_TIMEOUT = 30  # NHKの要素待機タイムアウト（秒）
+        PAGE_LOAD_TIMEOUT = 60  # ページ全体の読み込みタイムアウト（秒）
+        TVTOKYO_ELEMENT_TIMEOUT = 20  # TV東京の要素待機タイムアウト（秒）
+        NHK_ELEMENT_TIMEOUT = 20  # NHKの要素待機タイムアウト（秒）
 
     class Program:
         """番組関連の定数"""
@@ -152,8 +152,8 @@ class WebDriverManager:
                 self.driver.set_page_load_timeout(Constants.Time.PAGE_LOAD_TIMEOUT)
                 # スクリプトタイムアウトも設定
                 self.driver.set_script_timeout(Constants.Time.PAGE_LOAD_TIMEOUT)
-                # 暗黙的待機
-                self.driver.implicitly_wait(Constants.Time.SHORT_TIMEOUT)
+                # 暗黙的待機（コンポーネントのDOM描画遅延をカバーするため少なめで復活）
+                self.driver.implicitly_wait(3)
             except Exception:
                 # ドライバによってはこれらの設定が使用できない場合があるため無視
                 pass

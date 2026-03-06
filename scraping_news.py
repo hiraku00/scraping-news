@@ -81,17 +81,18 @@ class NHKScraper(BaseScraper):
         processed_episodes_count = 0
         
         for retry in range(max_scroll_retries + 1):
-            episodes = self.episode_processor.find_episode_elements(driver, program_title)
+            # 空番組での長期待機（ボトルネック）を避けるため、要素出現待機は5秒に短縮する
+            episodes = self.episode_processor.find_episode_elements(driver, program_title, timeout=5)
             if not episodes:
-                self.logger.info(f"[{program_title}] エピソードリストが空です (試行 {retry+1})")
-                if retry < max_scroll_retries:
-                    self.logger.debug(f"[{program_title}] リストが空のため、スクロールして再試行します")
-                    driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-                    import time
-                    time.sleep(2)
-                    continue
-                return None
+                if retry == 0:
+                    self.logger.info(f"[{program_title}] 初回描画でエピソードリストが空です。対象エピソードなしと判断します。")
+                    return None
+                else:
+                    self.logger.info(f"[{program_title}] 追加のエピソードが見つかりませんでした (試行 {retry+1})")
+                    return None
 
+            # 走査中のfind_elementsで要素がない場合の余計な3秒待機を防ぐため、一時的に0に設定
+            driver.implicitly_wait(0)
             # 現在表示されている全エピソードをチェック
             for i in range(processed_episodes_count, len(episodes)):
                 episode = episodes[i]
@@ -106,10 +107,13 @@ class NHKScraper(BaseScraper):
                         self.logger.debug(f"エピソードタイトルを抽出しました: {self.current_episode_title}")
                     return self.episode_processor.extract_episode_url(episode, program_title)
                 
-                # 降順に並んでいる前提で、対象日より古い日付が出た時点で探索を終了
+                # 降順に並んでいる前提だったが、対象日より古い日付が出ても直ちに探索を終了しない
                 if episode_date < target_date_dt:
-                    self.logger.debug(f"[{program_title}] 対象日より古いエピソードに達しました ({episode_date.strftime('%Y-%m-%d')})。探索を終了します。")
-                    return None
+                    self.logger.debug(f"[{program_title}] 対象日より古いエピソードをスキップします ({episode_date.strftime('%Y-%m-%d')})")
+                    continue
+            
+            # 以降の処理（スクロールやJSON-LD探索等）のために元に戻す
+            driver.implicitly_wait(3)
             
             # リストの最後まで見たが、まだ対象日より新しい日付しか見つかっていない場合、スクロールして次を読み込む
             processed_episodes_count = len(episodes)
@@ -477,6 +481,9 @@ class TVTokyoScraper(BaseScraper):
                 # 対象日を日付型に変換しておく
                 target_date_dt = datetime.strptime(formatted_date, '%Y.%m.%d').date()
 
+                # 走査中のfind_elementsで要素がない場合の余計な3秒待機を防ぐため、一時的に0に設定
+                driver.implicitly_wait(0)
+
                 for episode in episode_elements:
                     try:
                         # 日付要素の取得を試みる
@@ -528,10 +535,10 @@ class TVTokyoScraper(BaseScraper):
                                 except Exception:
                                     pass
 
-                            # 対象日より古い日付が出現した場合は探索を終了 (break)
+                            # 対象日より古い日付が出現した場合も、並び順が確実ではないため探索を終了させずスキップして次へ進む
                             if current_date_dt and current_date_dt < target_date_dt:
-                                self.logger.debug(f"[{program_name}] 対象日より古いエピソードに達しました ({current_date_dt})。探索を打ち切ります。")
-                                break
+                                self.logger.debug(f"[{program_name}] 対象日より古いエピソードをスキップします ({current_date_dt})")
+                                continue
 
                         except Exception as e:
                             self.logger.error(f"日付マッチング中にエラーが発生しました: {e}")
@@ -557,6 +564,9 @@ class TVTokyoScraper(BaseScraper):
 
                     except Exception as e_inner:
                         self.logger.error(f"エピソード解析中に予期せぬエラー: {e_inner} - {program_name} - {target_url}", exc_info=True)
+
+                # 以降の処理のために元に戻す
+                driver.implicitly_wait(3)
 
                 if urls_found_on_page:
                     self.logger.debug(f"抽出されたURL ({target_url}): {urls_found_on_page}")
@@ -968,17 +978,9 @@ def main():
         if total_tasks == 0:
             global_logger.warning("実行するタスクがありません。")
         else:
-            # --- WebDriver ウォームアップ (Selenium Manager の競合回避) ---
-            global_logger.info("WebDriver を初期化しています (ウォームアップ)...")
-            try:
-                with WebDriverManager() as driver:
-                    # 一度ブラウザを開くことでドライバをキャッシュにロードさせる
-                    pass
-            except Exception as e:
-                global_logger.warning(f"WebDriver のウォームアップ中にエラーが発生しました (無視して続行します): {e}")
-
             global_logger.info(f"並列処理を開始します ({total_tasks} タスク)")
-            pool = multiprocessing.Pool()
+            # 同時Chrome起動数を適度に制限しつつ、並列度を高める（重いサイトのタイムアウトを防ぐため10→6プロセスへ調整）
+            pool = multiprocessing.Pool(processes=6)
             try:
                 # imap_unordered で FetchResult を受け取る
                 for fetch_result in pool.imap_unordered(fetch_program_info, tasks):
