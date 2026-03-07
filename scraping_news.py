@@ -39,22 +39,14 @@ class NHKScraper(BaseScraper):
 
     @BaseScraper.log_operation("番組情報の取得")
     def get_program_info(self, program_name: str, target_date: str) -> ScrapeResult:
-        """指定された番組の情報を取得する"""
+        """指定された番組の情報を取得する（内部でChrome起動）"""
         if not self.validate_config(program_name):
             return ScrapeStatus.FAILURE, f"設定情報が見つかりません"
 
         program_info = self.config.get(program_name)
 
         def scrape_operation(driver) -> ScrapeResult:
-            episode_url = self._extract_nhk_episode_info(driver, target_date, program_name)
-            if episode_url:
-                formatted_info = self._get_nhk_formatted_episode_info(driver, program_name, episode_url, program_info.get("channel", "不明"))
-                if formatted_info:
-                    return ScrapeStatus.SUCCESS, formatted_info
-                else:
-                    return ScrapeStatus.FAILURE, f"詳細情報の整形/取得に失敗"
-            else:
-                return ScrapeStatus.NOT_FOUND, f"対象エピソードが見つかりません"
+            return self._scrape_nhk_program(driver, program_name, target_date, program_info)
 
         result = self.execute_with_driver(scrape_operation)
 
@@ -65,6 +57,39 @@ class NHKScraper(BaseScraper):
         else:
             self.logger.error(f"execute_with_driver が予期しない値を返しました: {result}")
             return ScrapeStatus.FAILURE, f"予期しない内部エラー"
+
+    def get_program_info_with_driver(self, driver, program_name: str, target_date: str) -> ScrapeResult:
+        """外部から渡されたChromeドライバを使用して番組情報を取得する（Chrome起動なし）"""
+        if not self.validate_config(program_name):
+            return ScrapeStatus.FAILURE, f"設定情報が見つかりません"
+
+        program_info = self.config.get(program_name)
+
+        def scrape_operation(driver) -> ScrapeResult:
+            return self._scrape_nhk_program(driver, program_name, target_date, program_info)
+
+        result = self.execute_with_existing_driver(driver, scrape_operation)
+
+        if result is None:
+            return ScrapeStatus.FAILURE, f"WebDriverエラーまたは内部エラー発生"
+        elif isinstance(result, tuple) and len(result) == 2 and isinstance(result[0], ScrapeStatus):
+            return result
+        else:
+            self.logger.error(f"execute_with_existing_driver が予期しない値を返しました: {result}")
+            return ScrapeStatus.FAILURE, f"予期しない内部エラー"
+
+    def _scrape_nhk_program(self, driver, program_name: str, target_date: str, program_info: dict) -> ScrapeResult:
+        """NHK番組の実際のスクレイピング処理（共通ロジック）"""
+        self.current_episode_title = None
+        episode_url = self._extract_nhk_episode_info(driver, target_date, program_name)
+        if episode_url:
+            formatted_info = self._get_nhk_formatted_episode_info(driver, program_name, episode_url, program_info.get("channel", "不明"))
+            if formatted_info:
+                return ScrapeStatus.SUCCESS, formatted_info
+            else:
+                return ScrapeStatus.FAILURE, f"詳細情報の整形/取得に失敗"
+        else:
+            return ScrapeStatus.NOT_FOUND, f"対象エピソードが見つかりません"
 
     @BaseScraper.handle_selenium_error
     def _extract_nhk_episode_info(self, driver, target_date: str, program_title: str) -> str | None:
@@ -333,29 +358,44 @@ class TVTokyoScraper(BaseScraper):
 
     @BaseScraper.log_operation("番組情報の取得")
     def get_program_info(self, program_name: str, target_date: str) -> ScrapeResult:
+        """指定された番組の情報を取得する（内部でChrome起動）"""
         if not self.validate_config(program_name):
             return ScrapeStatus.FAILURE, "設定情報が見つかりません"
 
-        program_config = self.config.get(program_name)
-        self.logger.debug(f"[{program_name}] 設定内容: {program_config}")
-
         try:
             with WebDriverManager() as driver:
-                formatted_date = format_date(target_date)
-                weekday = datetime.strptime(target_date, '%Y%m%d').weekday()
-                program_time = format_program_time(program_config.get('name'), weekday, program_config.get('time'))
-
-                target_urls = self._prepare_target_urls(program_config, program_name)
-                if not target_urls:
-                    return ScrapeStatus.FAILURE, "有効なURLが設定されていません"
-
-                return self._fetch_and_format_tvtokyo_episodes(
-                    driver, program_config, target_urls, formatted_date, program_time, program_name
-                )
-
+                return self._scrape_tvtokyo_program(driver, program_name, target_date)
         except Exception as e:
             self.logger.error(f"番組情報取得中にエラー: {e} - {program_name}", exc_info=True)
             return ScrapeStatus.FAILURE, f"処理中にエラー: {e}"
+
+    def get_program_info_with_driver(self, driver, program_name: str, target_date: str) -> ScrapeResult:
+        """外部から渡されたChromeドライバを使用して番組情報を取得する（Chrome起動なし）"""
+        if not self.validate_config(program_name):
+            return ScrapeStatus.FAILURE, "設定情報が見つかりません"
+
+        try:
+            return self._scrape_tvtokyo_program(driver, program_name, target_date)
+        except Exception as e:
+            self.logger.error(f"番組情報取得中にエラー: {e} - {program_name}", exc_info=True)
+            return ScrapeStatus.FAILURE, f"処理中にエラー: {e}"
+
+    def _scrape_tvtokyo_program(self, driver, program_name: str, target_date: str) -> ScrapeResult:
+        """TV東京番組の実際のスクレイピング処理（共通ロジック）"""
+        program_config = self.config.get(program_name)
+        self.logger.debug(f"[{program_name}] 設定内容: {program_config}")
+
+        formatted_date = format_date(target_date)
+        weekday = datetime.strptime(target_date, '%Y%m%d').weekday()
+        program_time = format_program_time(program_config.get('name'), weekday, program_config.get('time'))
+
+        target_urls = self._prepare_target_urls(program_config, program_name)
+        if not target_urls:
+            return ScrapeStatus.FAILURE, "有効なURLが設定されていません"
+
+        return self._fetch_and_format_tvtokyo_episodes(
+            driver, program_config, target_urls, formatted_date, program_time, program_name
+        )
 
     def _prepare_target_urls(self, program_config: dict, program_name: str) -> List[str]:
         target_urls = []
@@ -777,44 +817,77 @@ class TVTokyoScraper(BaseScraper):
 logger = logging.getLogger(__name__)
 
 # 戻り値の型アノテーションを修正: FetchResult を使用
-def fetch_program_info(args: tuple[str, str, dict, str]) -> FetchResult: # 戻り値の型を FetchResult に
-    """並列処理用のラッパー関数。番組名、ステータス、結果/メッセージのタプル、またはNoneを返す"""
-    task_type, program_name, programs, target_date = args
-    process_logger = logging.getLogger(f"{__name__}.{program_name}")
+def fetch_program_batch(args: tuple[list[tuple[str, str]], dict, dict, str]) -> list[FetchResult]:
+    """バッチ処理用のラッパー関数。1つのChromeインスタンスで複数番組を処理する。
+
+    args: (番組リスト[(task_type, program_name), ...], nhk_programs, tvtokyo_programs, target_date)
+    戻り値: 各番組の結果リスト [FetchResult, ...]
+    """
+    batch_tasks, nhk_programs, tvtokyo_programs, target_date = args
+    batch_logger = logging.getLogger(f"{__name__}.batch")
+    results: list[FetchResult] = []
 
     try:
-        scraper = None
-        status: ScrapeStatus = ScrapeStatus.FAILURE # デフォルト
-        data_or_message: ScrapeResultData = "不明なエラー" # デフォルト
+        with WebDriverManager() as driver:
+            # スクレイパーインスタンスを1回だけ生成（Chromeも1回だけ起動）
+            nhk_scraper = NHKScraper(nhk_programs) if nhk_programs else None
+            tvtokyo_scraper = TVTokyoScraper(tvtokyo_programs) if tvtokyo_programs else None
 
-        if task_type == 'nhk':
-            scraper = NHKScraper(programs)
-            status, data_or_message = scraper.get_program_info(program_name, target_date)
-        elif task_type == 'tvtokyo':
-            scraper = TVTokyoScraper(programs)
-            status, data_or_message = scraper.get_program_info(program_name, target_date)
-        else:
-            process_logger.error(f"不明なタスクタイプです: {task_type}")
-            return program_name, ScrapeStatus.FAILURE, f"不明なタスクタイプ: {task_type}"
+            for task_type, program_name in batch_tasks:
+                try:
+                    status: ScrapeStatus = ScrapeStatus.FAILURE
+                    data_or_message: ScrapeResultData = "不明なエラー"
 
-        # scraper.get_program_info の結果をタプルで返す
-        return program_name, status, data_or_message
+                    if task_type == 'nhk' and nhk_scraper:
+                        status, data_or_message = nhk_scraper.get_program_info_with_driver(
+                            driver, program_name, target_date
+                        )
+                    elif task_type == 'tvtokyo' and tvtokyo_scraper:
+                        status, data_or_message = tvtokyo_scraper.get_program_info_with_driver(
+                            driver, program_name, target_date
+                        )
+                    else:
+                        batch_logger.error(f"不明なタスクタイプです: {task_type}")
+                        data_or_message = f"不明なタスクタイプ: {task_type}"
+
+                    results.append((program_name, status, data_or_message))
+
+                except Exception as e:
+                    batch_logger.error(f"{program_name} の情報取得で予期せぬエラー: {e}", exc_info=True)
+                    results.append((program_name, ScrapeStatus.FAILURE, f"プロセスエラー: {e}"))
 
     except Exception as e:
-        process_logger.error(f"{program_name} の情報取得プロセスで予期せぬエラー: {e}", exc_info=True)
-        # プロセスレベルのエラーも failure タプルで返す
-        return program_name, ScrapeStatus.FAILURE, f"プロセスエラー: {e}"
+        batch_logger.error(f"バッチ処理でChromeの起動/操作に失敗: {e}", exc_info=True)
+        # Chrome起動自体が失敗した場合、バッチ内の未処理タスクを全てFAILUREにする
+        processed_names = {r[0] for r in results}
+        for task_type, program_name in batch_tasks:
+            if program_name not in processed_names:
+                results.append((program_name, ScrapeStatus.FAILURE, f"Chrome起動エラー: {e}"))
+
+    return results
 
 def get_elapsed_time(start_time: float) -> float:
     """経過時間を計算する"""
     end_time = time.time()
     return end_time - start_time
 
-def process_scraping(target_date: str, nhk_programs: dict, tvtokyo_programs: dict) -> list[tuple[str, str, dict, str]]:
-    """スクレイピング処理を行う"""
-    nhk_tasks = [('nhk', program_title, nhk_programs, target_date) for program_title in nhk_programs]
-    tvtokyo_tasks = [('tvtokyo', program_name, tvtokyo_programs, target_date) for program_name in tvtokyo_programs]
-    return nhk_tasks + tvtokyo_tasks
+def create_batches(target_date: str, nhk_programs: dict, tvtokyo_programs: dict, num_workers: int = 6) -> list[tuple]:
+    """番組リストをworker数に応じてバッチに分割する"""
+    # 全タスクを (task_type, program_name) のリストに変換
+    all_tasks = []
+    all_tasks.extend([('nhk', name) for name in nhk_programs])
+    all_tasks.extend([('tvtokyo', name) for name in tvtokyo_programs])
+
+    if not all_tasks:
+        return []
+
+    # ラウンドロビンでバッチに振り分け（均等に分配）
+    batches: list[list[tuple[str, str]]] = [[] for _ in range(min(num_workers, len(all_tasks)))]
+    for i, task in enumerate(all_tasks):
+        batches[i % len(batches)].append(task)
+
+    # 各バッチを fetch_program_batch の引数形式に変換
+    return [(batch, nhk_programs, tvtokyo_programs, target_date) for batch in batches]
 
 def write_results_to_file(sorted_blocks: list[str], output_file_path: str) -> None:
     """ソートされた結果をファイルに書き込む (logger を引数で受け取らない)"""
@@ -970,29 +1043,30 @@ def main():
             global_logger.error("設定ファイルの読み込みに失敗したか、設定が空です。処理を終了します。")
             sys.exit(1)
 
-        tasks = process_scraping(target_date, nhk_programs or {}, tvtokyo_programs or {})
-        total_tasks = len(tasks)
+        all_task_names = list((nhk_programs or {}).keys()) + list((tvtokyo_programs or {}).keys())
+        total_tasks = len(all_task_names)
         processed_tasks = 0
         results = [] # スクレイピング結果のみを格納
 
         if total_tasks == 0:
             global_logger.warning("実行するタスクがありません。")
         else:
-            global_logger.info(f"並列処理を開始します ({total_tasks} タスク)")
-            # 同時Chrome起動数を適度に制限しつつ、並列度を高める（重いサイトのタイムアウトを防ぐため10→6プロセスへ調整）
-            pool = multiprocessing.Pool(processes=6)
+            num_workers = 6
+            batches = create_batches(target_date, nhk_programs or {}, tvtokyo_programs or {}, num_workers)
+            global_logger.info(f"並列処理を開始します ({total_tasks} タスク, {len(batches)} バッチ, {num_workers} ワーカー)")
+            pool = multiprocessing.Pool(processes=num_workers)
             try:
-                # imap_unordered で FetchResult を受け取る
-                for fetch_result in pool.imap_unordered(fetch_program_info, tasks):
-                    processed_tasks += 1
-                    elapsed_time = get_elapsed_time(start_time)
+                # バッチ単位で並列実行し、結果を展開して処理する
+                for batch_results in pool.imap_unordered(fetch_program_batch, batches):
+                    for fetch_result in batch_results:
+                        processed_tasks += 1
+                        elapsed_time = get_elapsed_time(start_time)
 
-                    # ヘルパー関数で結果処理とメッセージ生成
-                    progress_message = _process_fetch_result(fetch_result, results, global_logger)
+                        # ヘルパー関数で結果処理とメッセージ生成
+                        progress_message = _process_fetch_result(fetch_result, results, global_logger)
 
-                    # 進捗表示 (1行にまとめる)
-                    # \r を使って行を上書きすることで、ログが流れすぎるのを防ぐ
-                    print(f"\n進捗: {processed_tasks}/{total_tasks} ({progress_message}) （経過時間：{elapsed_time:.0f}秒）", end="")
+                        # 進捗表示
+                        print(f"\n進捗: {processed_tasks}/{total_tasks} ({progress_message}) （経過時間：{elapsed_time:.0f}秒）", end="")
 
             except KeyboardInterrupt:
                 global_logger.warning("\nユーザーによって処理が中断されました。プロセスを終了しています...")
