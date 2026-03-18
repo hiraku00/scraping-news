@@ -36,8 +36,8 @@ class Constants:
         DEFAULT_TIMEOUT = 10 # デフォルトのタイムアウト時間
         SHORT_TIMEOUT = 5 # 短めのタイムアウトを追加 (必要に応じて調整)
         PAGE_LOAD_TIMEOUT = 60  # ページ全体の読み込みタイムアウト（秒）
-        TVTOKYO_ELEMENT_TIMEOUT = 20  # TV東京の要素待機タイムアウト（秒）
-        NHK_ELEMENT_TIMEOUT = 20  # NHKの要素待機タイムアウト（秒）
+        TVTOKYO_ELEMENT_TIMEOUT = 5  # TV東京の要素待機タイムアウト（秒）
+        NHK_ELEMENT_TIMEOUT = 5  # NHKの要素待機タイムアウト（秒）
 
     class Program:
         """番組関連の定数"""
@@ -135,8 +135,19 @@ class WebDriverManager:
         options.add_argument("--disable-gpu")
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
+        # プロキシ自動検出による数十秒のハングを回避
+        options.add_argument("--proxy-server='direct://'")
+        options.add_argument("--proxy-bypass-list=*")
         # Selenium Driver のログ出力を抑制
         options.add_experimental_option('excludeSwitches', ['enable-logging'])
+        
+        # ページロード高速化：画像と通知のみブロック（CSSやCookieをブロックするとTV東京等の動的サイトで要素が取れないデグレが発生するため）
+        prefs = {
+            "profile.managed_default_content_settings.images": 2,  # 画像ブロック
+            "profile.default_content_setting_values.notifications": 2, # 通知ブロック
+        }
+        options.add_experimental_option("prefs", prefs)
+
         # Chrome自身のログレベルを設定 (INFO, WARNING, ERROR)
         options.add_argument(f"--log-level={Constants.WebDriver.LOG_LEVEL.lower()}")
         options.page_load_strategy = 'eager' # DOMが読み込まれたら次に進む

@@ -11,7 +11,8 @@ import re
 import json
 from selenium.common.exceptions import TimeoutException, NoSuchElementException, StaleElementReferenceException
 import logging
-from typing import Optional, Union, List, TypeAlias, Tuple
+import queue
+from typing import Optional, Union, List, TypeAlias, Tuple, Any
 from common.base_scraper import BaseScraper
 from common.episode_processor import EpisodeProcessor
 from common.utils import (
@@ -683,9 +684,14 @@ class TVTokyoScraper(BaseScraper):
             self.logger.debug(f"ガイアの夜明けのページを処理中: {episode_url}")
             try:
                 driver.get(episode_url)
-                # ページが完全に読み込まれるまで待機
-                time.sleep(2)
-                
+                # ページが完全にロードされるのを最長5秒だけ待つ（すでにeagerで早い段階で戻ってきているため）
+                try:
+                    WebDriverWait(driver, 5).until(
+                        lambda d: d.execute_script('return document.readyState') == 'complete'
+                    )
+                except Exception:
+                    pass # タイムアウトしてもとりあえず進む
+
                 # 1. まずはepisode__titleクラスから直接取得を試みる
                 title_elements = driver.find_elements(By.CSS_SELECTOR, 'span.episode__title')
                 if title_elements:
@@ -746,8 +752,7 @@ class TVTokyoScraper(BaseScraper):
             
         try:
             driver.get(episode_url)
-            # ページが完全に読み込まれるまで待機
-            time.sleep(2)
+            # ページが完全に読み込まれるまで待機（固定のtime.sleepを廃止し、eagerロードと後続の探索に任せる）
             
             # 複数のタイトルセレクタを試行（優先順位順）
             title_selectors = [
@@ -816,78 +821,72 @@ class TVTokyoScraper(BaseScraper):
 # モジュールレベルのロガーを取得
 logger = logging.getLogger(__name__)
 
-# 戻り値の型アノテーションを修正: FetchResult を使用
-def fetch_program_batch(args: tuple[list[tuple[str, str]], dict, dict, str]) -> list[FetchResult]:
-    """バッチ処理用のラッパー関数。1つのChromeインスタンスで複数番組を処理する。
+worker_driver = None
 
-    args: (番組リスト[(task_type, program_name), ...], nhk_programs, tvtokyo_programs, target_date)
-    戻り値: 各番組の結果リスト [FetchResult, ...]
-    """
-    batch_tasks, nhk_programs, tvtokyo_programs, target_date = args
-    batch_logger = logging.getLogger(f"{__name__}.batch")
-    results: list[FetchResult] = []
-
+def init_worker():
+    """各ワーカープロセスの初期化処理。自身のWebDriverインスタンスを作成し保持する。"""
+    global worker_driver
     try:
-        with WebDriverManager() as driver:
-            # スクレイパーインスタンスを1回だけ生成（Chromeも1回だけ起動）
-            nhk_scraper = NHKScraper(nhk_programs) if nhk_programs else None
-            tvtokyo_scraper = TVTokyoScraper(tvtokyo_programs) if tvtokyo_programs else None
-
-            for task_type, program_name in batch_tasks:
-                try:
-                    status: ScrapeStatus = ScrapeStatus.FAILURE
-                    data_or_message: ScrapeResultData = "不明なエラー"
-
-                    if task_type == 'nhk' and nhk_scraper:
-                        status, data_or_message = nhk_scraper.get_program_info_with_driver(
-                            driver, program_name, target_date
-                        )
-                    elif task_type == 'tvtokyo' and tvtokyo_scraper:
-                        status, data_or_message = tvtokyo_scraper.get_program_info_with_driver(
-                            driver, program_name, target_date
-                        )
-                    else:
-                        batch_logger.error(f"不明なタスクタイプです: {task_type}")
-                        data_or_message = f"不明なタスクタイプ: {task_type}"
-
-                    results.append((program_name, status, data_or_message))
-
-                except Exception as e:
-                    batch_logger.error(f"{program_name} の情報取得で予期せぬエラー: {e}", exc_info=True)
-                    results.append((program_name, ScrapeStatus.FAILURE, f"プロセスエラー: {e}"))
-
+        import atexit
+        # WebDriverManagerを使用してヘッドレスブラウザを起動
+        manager = WebDriverManager()
+        worker_driver = manager.__enter__()
+        atexit.register(cleanup_worker)
+        
+        import os
+        print(f" [DEBUG] ワーカープロセスを初期化しました (PID: {os.getpid()})", flush=True)
     except Exception as e:
-        batch_logger.error(f"バッチ処理でChromeの起動/操作に失敗: {e}", exc_info=True)
-        # Chrome起動自体が失敗した場合、バッチ内の未処理タスクを全てFAILUREにする
-        processed_names = {r[0] for r in results}
-        for task_type, program_name in batch_tasks:
-            if program_name not in processed_names:
-                results.append((program_name, ScrapeStatus.FAILURE, f"Chrome起動エラー: {e}"))
+        print(f" [ERROR] ワーカープロセスの初期化に失敗しました: {e}", flush=True)
+        worker_driver = None
 
-    return results
+def cleanup_worker():
+    """ワーカープロセス終了時のクリーンアップ処理。"""
+    global worker_driver
+    if worker_driver:
+        try:
+            worker_driver.quit()
+        except Exception:
+            pass
+        worker_driver = None
+
+def fetch_single_program(args: tuple[str, str, dict, dict, str]) -> FetchResult:
+    """単一の番組を処理するワーカー関数。プロセスのグローバルなWebDriverを使い回す。"""
+    task_type, program_name, nhk_programs, tvtokyo_programs, target_date = args
+    batch_logger = logging.getLogger(f"{__name__}.worker")
+    
+    global worker_driver
+    if worker_driver is None:
+        return (program_name, ScrapeStatus.FAILURE, "ワーカーのブラウザ初期化に失敗しました")
+        
+    try:
+        nhk_scraper = NHKScraper(nhk_programs) if nhk_programs else None
+        tvtokyo_scraper = TVTokyoScraper(tvtokyo_programs) if tvtokyo_programs else None
+        
+        status = ScrapeStatus.FAILURE
+        data_or_message = "不明なエラー"
+
+        if task_type == 'nhk' and nhk_scraper:
+            status, data_or_message = nhk_scraper.get_program_info_with_driver(
+                worker_driver, program_name, target_date
+            )
+        elif task_type == 'tvtokyo' and tvtokyo_scraper:
+            status, data_or_message = tvtokyo_scraper.get_program_info_with_driver(
+                worker_driver, program_name, target_date
+            )
+        else:
+            batch_logger.error(f"不明なタスクタイプです: {task_type}")
+            data_or_message = f"不明なタスクタイプ: {task_type}"
+
+        return (program_name, status, data_or_message)
+        
+    except Exception as e:
+        batch_logger.error(f"{program_name} の情報取得で予期せぬエラー: {e}", exc_info=True)
+        return (program_name, ScrapeStatus.FAILURE, f"プロセスエラー: {e}")
 
 def get_elapsed_time(start_time: float) -> float:
     """経過時間を計算する"""
     end_time = time.time()
     return end_time - start_time
-
-def create_batches(target_date: str, nhk_programs: dict, tvtokyo_programs: dict, num_workers: int = 6) -> list[tuple]:
-    """番組リストをworker数に応じてバッチに分割する"""
-    # 全タスクを (task_type, program_name) のリストに変換
-    all_tasks = []
-    all_tasks.extend([('nhk', name) for name in nhk_programs])
-    all_tasks.extend([('tvtokyo', name) for name in tvtokyo_programs])
-
-    if not all_tasks:
-        return []
-
-    # ラウンドロビンでバッチに振り分け（均等に分配）
-    batches: list[list[tuple[str, str]]] = [[] for _ in range(min(num_workers, len(all_tasks)))]
-    for i, task in enumerate(all_tasks):
-        batches[i % len(batches)].append(task)
-
-    # 各バッチを fetch_program_batch の引数形式に変換
-    return [(batch, nhk_programs, tvtokyo_programs, target_date) for batch in batches]
 
 def write_results_to_file(sorted_blocks: list[str], output_file_path: str) -> None:
     """ソートされた結果をファイルに書き込む (logger を引数で受け取らない)"""
@@ -1052,21 +1051,28 @@ def main():
             global_logger.warning("実行するタスクがありません。")
         else:
             num_workers = 6
-            batches = create_batches(target_date, nhk_programs or {}, tvtokyo_programs or {}, num_workers)
-            global_logger.info(f"並列処理を開始します ({total_tasks} タスク, {len(batches)} バッチ, {num_workers} ワーカー)")
-            pool = multiprocessing.Pool(processes=num_workers)
+            # ▼ create_batches() の代わりに、単発タスクのリストを作成
+            single_tasks = []
+            if nhk_programs:
+                single_tasks.extend([('nhk', name, nhk_programs, tvtokyo_programs or {}, target_date) for name in nhk_programs.keys()])
+            if tvtokyo_programs:
+                single_tasks.extend([('tvtokyo', name, nhk_programs or {}, tvtokyo_programs, target_date) for name in tvtokyo_programs.keys()])
+                
+            global_logger.info(f"並列処理を開始します ({total_tasks} タスク, {num_workers} ワーカー)")
+            
+            # initializerを使ってワーカープロセス起動時に1度だけWebDriverを初期化・常駐させる
+            pool = multiprocessing.Pool(processes=num_workers, initializer=init_worker)
             try:
-                # バッチ単位で並列実行し、結果を展開して処理する
-                for batch_results in pool.imap_unordered(fetch_program_batch, batches):
-                    for fetch_result in batch_results:
-                        processed_tasks += 1
-                        elapsed_time = get_elapsed_time(start_time)
+                # imap_unordered は単発タスクの結果を即座に返す（バッチ完了を待つ必要がない）
+                for fetch_result in pool.imap_unordered(fetch_single_program, single_tasks):
+                    processed_tasks += 1
+                    elapsed_time = get_elapsed_time(start_time)
 
-                        # ヘルパー関数で結果処理とメッセージ生成
-                        progress_message = _process_fetch_result(fetch_result, results, global_logger)
+                    # ヘルパー関数で結果処理とメッセージ生成
+                    progress_message = _process_fetch_result(fetch_result, results, global_logger)
 
-                        # 進捗表示
-                        print(f"\n進捗: {processed_tasks}/{total_tasks} ({progress_message}) （経過時間：{elapsed_time:.0f}秒）", end="")
+                    # 進捗表示
+                    print(f"\n進捗: {processed_tasks}/{total_tasks} ({progress_message}) （経過時間：{elapsed_time:.0f}秒）", end="", flush=True)
 
             except KeyboardInterrupt:
                 global_logger.warning("\nユーザーによって処理が中断されました。プロセスを終了しています...")
