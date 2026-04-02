@@ -397,25 +397,23 @@ def parse_args() -> argparse.Namespace:
 
     # 共通オプション（サブコマンド後ろでも受け付けるための親パーサ）
     common = argparse.ArgumentParser(add_help=False)
-    common.add_argument('--date', type=str, help='処理する日付 (YYYYMMDD形式、デフォルト: 前日)')
+    # 位置引数としての日付（nargs='?' で省略可能に）
+    common.add_argument('date', nargs='?', type=str, help='処理する日付 (YYYYMMDD形式、指定なしの場合は前日)')
+    # オプション引数としての日付（互換性のため）
+    common.add_argument('--date', dest='opt_date', type=str, help='処理する日付 (位置引数と重複時は位置引数を優先)')
     common.add_argument('--debug', action='store_true', help='デバッグモードで実行（詳細なログを表示）')
 
     # サブコマンド
     subparsers = parser.add_subparsers(dest='command', metavar='command', help='実行するコマンド')
     subparsers.required = False  # 後方互換のため、ここでは必須にしない
 
-    # 各コマンド（日付を位置引数として受け付ける）
+    # 各コマンド（common を継承することで、すべて位置引数 date とオプション引数 --date を受け付ける）
     subparsers.add_parser('all', parents=[common], help='全ステップを実行（スクレイピング→ツイート取得→マージ→分割→URLオープン）')
     subparsers.add_parser('scrape', parents=[common], help='スクレイピングのみ実行')
     subparsers.add_parser('get-tweets', parents=[common], help='ツイート取得のみ実行')
     subparsers.add_parser('merge', parents=[common], help='マージのみ実行')
     subparsers.add_parser('split', parents=[common], help='分割のみ実行')
-
-    # openコマンドは日付を位置引数として受け付ける特別なパーサ
-    open_parser = subparsers.add_parser('open', help='URLオープンのみ実行')
-    open_parser.add_argument('date', nargs='?', help='処理する日付 (YYYYMMDD形式、指定なしの場合は前日)')
-    open_parser.add_argument('--debug', action='store_true', help='デバッグモードで実行（詳細なログを表示）')
-
+    subparsers.add_parser('open', parents=[common], help='URLオープンのみ実行')
     subparsers.add_parser('tweet', parents=[common], help='ツイート投稿のみ実行')
 
     # 後方互換: 旧フラグを受け付ける（使用時は警告を表示）
@@ -470,8 +468,8 @@ def main() -> int:
         logger.setLevel(logging.DEBUG)
         logger.debug("Debug mode enabled")
 
-    # ターゲット日付の取得
-    target_date = get_target_date(args.date)
+    # ターゲット日付の取得（位置引数 args.date またはオプション引数 args.opt_date）
+    target_date = get_target_date(args.date or args.opt_date)
     logger.info(f"Processing date: {target_date}")
 
     # 各アクションの実行（サブコマンドに基づく）
@@ -533,13 +531,7 @@ def main() -> int:
         elif args.command == 'split':
             success = run_split(target_date)
         elif args.command == 'open':
-            # openコマンドの場合、位置引数で日付が指定されている可能性がある
-            if hasattr(args, 'date') and args.date:
-                success = run_open_urls(args.date)
-            else:
-                # 日付が指定されていない場合はデフォルト日付を使用
-                target_date = get_target_date(args.date)
-                success = run_open_urls(target_date)
+            success = run_open_urls(target_date)
         elif args.command == 'tweet':
             success = run_tweet(target_date)
         else:
