@@ -39,18 +39,17 @@
 
 ### メインコマンド
 
-````bash
-# 新しいサブコマンド形式（推奨）
+```bash
+# 新しいサブコマンド形式（推奨: 日付を位置引数として指定可能）
 python main.py <command> [YYYYMMDD]
 
-# 従来のオプション形式（後方互換）
-python main.py --<command> [--date YYYYMMDD]
-
 # 例: 2025年10月3日のデータを処理
-python main.py open 20251003
-# または
-python main.py open --date 20251003
-````
+python main.py all 20251003
+python main.py get-tweets 20251003
+
+# 従来のオプション形式（後方互換）
+python main.py <command> --date YYYYMMDD
+```
 
 ### コマンド一覧
 
@@ -61,7 +60,7 @@ python main.py open --date 20251003
 | `get-tweets` | ツイート取得のみ実行 |
 | `merge` | マージのみ実行 |
 | `split` | 分割のみ実行 |
-| `open` | URLをブラウザで開く（日付は位置引数または`--date`オプションで指定） |
+| `open` | URLをブラウザで開く |
 | `tweet` | ツイート投稿のみ実行 |
 
 ### WBS番組の処理について
@@ -82,12 +81,12 @@ python main.py tweet
 
 #### 特定の日付を処理
 ```bash
-# 2025-10-03 のデータを処理（全ステップ）
+# 20251003 のデータを処理（全ステップ）
 python main.py all 20251003
 
-# 特定のステップのみ実行（位置引数で日付指定可能）
+# 特定のステップのみ実行
 python main.py scrape 20251003
-python main.py open 20251003
+python main.py get-tweets 20251003
 ```
 
 #### 旧スタイル（後方互換）
@@ -232,7 +231,6 @@ z bi
 ##### 検索機能
 
 - **X API v2 の利用**: `tweepy`ライブラリを使用して X API v2 にアクセスし、ツイートを検索
-- **ダミーデータの利用**: API レート制限回避用のダミーデータモード（`USE_API`変数で切り替え）
 - **検索クエリ表示**:
   - API 用クエリ: X API v2 に送信される検索条件
   - X 検索窓用クエリ: X のウェブサイトで直接使用できる検索文字列（番組名をダブルクォートで囲み、since/until で日時指定）
@@ -369,7 +367,6 @@ z bi
   - `sys`
   - `pytz`
   - `re`
-  - `json`（ダミーデータ利用時）
   - `unicodedata`
 
 - **`merge-text.py`**
