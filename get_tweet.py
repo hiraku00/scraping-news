@@ -115,7 +115,7 @@ def search_tweets(target_date, user=None, count=10):
         print(f"予期せぬエラーが発生しました: {e}")
         return None
 
-def format_program_info(text, time_info):
+def format_program_info(text, time_info, channel="NHK BS"):
     """番組情報をフォーマットする"""
     program_info = "番組情報の抽出に失敗"  # デフォルト値
 
@@ -124,7 +124,7 @@ def format_program_info(text, time_info):
         if program_name in text:
             # Asia Insightの場合は英語表記を使用
             display_name = "Asia Insight" if "Asia" in program_name else program_name
-            program_info = f"●{display_name}(NHK BS {time_info}-)"
+            program_info = f"●{display_name}({channel} {time_info}-)"
             break
 
     return program_info
@@ -138,9 +138,10 @@ def extract_program_info(lines, text):
         first_line = lines[0]
         parts = first_line.split()
         # 放送局と日付の基本部分を確認
-        if len(parts) > 3 and parts[0] == "NHK" and parts[1] == "BS":
+        if len(parts) > 3 and parts[0] == "NHK":
+            channel = f"NHK {parts[1]}"
             time_info = extract_time_info_from_text(first_line)  # utils.py の共通関数を使用
-            program_info = format_program_info(text, time_info)
+            program_info = format_program_info(text, time_info, channel)
 
     return time_info, program_info
 
@@ -156,7 +157,7 @@ def cleanup_content(text, content):
     """不要な文字列を削除する"""
     # 世界のドキュメンタリー（新表記）の場合
     if "世界のドキュメンタリー" in text:
-        content = re.sub(r'世界のドキュメンタリー[▽　選「]*', '', content).strip()
+        content = re.sub(r'世界のドキュメンタリー[🈟▽　選「]*', '', content).strip()
         content = re.sub(r'」$', '', content).strip()
     # アナザーストーリーズの場合
     elif "アナザーストーリーズ" in text:
