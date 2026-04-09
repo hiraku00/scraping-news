@@ -154,15 +154,19 @@ def extract_url_from_lines(lines):
     return "URLの抽出に失敗"
 
 def cleanup_content(text, content):
-    """不要な文字列を削除する"""
-    # 世界のドキュメンタリー（新表記）の場合
-    if "世界のドキュメンタリー" in text:
-        content = re.sub(r'世界のドキュメンタリー[🈟▽　選「]*', '', content).strip()
-        content = re.sub(r'」$', '', content).strip()
-    # アナザーストーリーズの場合
-    elif "アナザーストーリーズ" in text:
-        content = re.sub(r'アナザーストーリーズ[▽　選「]*', '', content).strip()
-        content = re.sub(r'」$', '', content).strip()
+    """
+    ツイート本文から番組名や不要な記号、装飾を除去してサブタイトルのみを抽出する。
+    「ＢＳ世界のドキュメンタリー選▽」や従来の「世界のドキュメンタリー「...」」形式に対応。
+    """
+
+    for program_name in PROGRAM_NAMES:
+        if program_name in text:
+            # プログラム名とその前の「ＢＳ」「BS」、およびその後の記号を削除
+            pattern = rf'[ＢＳBS\s]*{re.escape(program_name)}[🈟▽　選「]*'
+            content = re.sub(pattern, '', content).strip()
+            # 文末の「」を削除
+            content = re.sub(r'」$', '', content).strip()
+            break
     return content
 
 def extract_content_from_lines(lines, text):
