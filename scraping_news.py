@@ -90,7 +90,7 @@ class NHKScraper(BaseScraper):
             else:
                 return ScrapeStatus.FAILURE, f"詳細情報の整形/取得に失敗"
         else:
-            return ScrapeStatus.NOT_FOUND, f"対象エピソードが見つかりません"
+            return ScrapeStatus.NOT_FOUND, "対象なし"
 
     @BaseScraper.handle_selenium_error
     def _extract_nhk_episode_info(self, driver, target_date: str, program_title: str) -> str | None:
@@ -423,14 +423,24 @@ class TVTokyoScraper(BaseScraper):
         return target_urls
 
     def _fetch_and_format_tvtokyo_episodes(self, driver, program_config: dict, target_urls: List[str], formatted_date: str, program_time: str, program_name: str) -> ScrapeResult:
-        episode_urls, error_count = self._extract_tvtokyo_episode_urls(driver, target_urls, formatted_date, program_name)
+        episode_urls, error_count, zero_result_urls = self._extract_tvtokyo_episode_urls(driver, target_urls, formatted_date, program_name)
         
         status_suffix = ""
         if error_count > 0:
-            status_suffix = f" (注意: {error_count}件のURLで取得失敗)"
+            status_suffix = f" (スキップ: 取得失敗:{error_count}件)"
 
         if not episode_urls:
-            msg = f"放送が見つかりませんでした (日付: {formatted_date}){status_suffix}"
+            msg = "対象なし"
+            # エラーや未取得があれば付与
+            reasons = []
+            if error_count > 0:
+                reasons.append(f"エラー:{error_count}件")
+            if zero_result_urls:
+                reasons.append(f"確認: {', '.join(zero_result_urls)}")
+            
+            if reasons:
+                msg += f" [{', '.join(reasons)}]"
+            
             return ScrapeStatus.NOT_FOUND, msg
 
         all_formatted_outputs = []
@@ -461,19 +471,26 @@ class TVTokyoScraper(BaseScraper):
         # 呼び出し元 (_process_fetch_result) で処理できるように status_suffix を各結果の末尾に仕込むか
         # あるいは _process_fetch_result 側で制御する。
         # ここでは all_formatted_outputs の最初の要素にエラー情報を付与する
+        if zero_result_urls and all_formatted_outputs:
+            if status_suffix:
+                status_suffix += f" (✕未取得: {', '.join(zero_result_urls)})"
+            else:
+                status_suffix = f" (✕未取得: {', '.join(zero_result_urls)})"
+
         if status_suffix and all_formatted_outputs:
             all_formatted_outputs[0] += f"\n<!-- error_info: {status_suffix} -->"
 
         return ScrapeStatus.SUCCESS, all_formatted_outputs
 
-    def _extract_tvtokyo_episode_urls(self, driver, target_urls: list[str], formatted_date: str, program_name: str) -> tuple[list[str], int]:
+    def _extract_tvtokyo_episode_urls(self, driver, target_urls: list[str], formatted_date: str, program_name: str) -> tuple[list[str], int, list[str]]:
         """
         テレビ東京のエピソードURLを抽出する。
         target_urls をリストとして受け取り、各URLに対して処理を行う。
-        戻り値: (見つかったURLのリスト, エラー(タイムアウト等)が発生したURLの数)
+        戻り値: (見つかったURLのリスト, エラー数, 0件だったサブURLのカテゴリ名のリスト)
         """
         all_urls = []
         error_count = 0
+        zero_result_urls = []
         today = datetime.now().date()
         yesterday = today - timedelta(days=1)
         formatted_today = format_date(today.strftime('%Y%m%d'))
@@ -614,6 +631,15 @@ class TVTokyoScraper(BaseScraper):
                     all_urls.extend(urls_found_on_page)
                 else:
                     self.logger.debug(f"対象日付のエピソードは見つかりませんでした - {program_name} - {target_url} (日付: {formatted_date})")
+                    # URLカテゴリを判定（WBSの場合）
+                    if "feature" in target_url:
+                        zero_result_urls.append("特集")
+                    elif "trend_tamago" in target_url:
+                        zero_result_urls.append("トレたま")
+                    elif "oa" in target_url:
+                        zero_result_urls.append("OA")
+                    else:
+                        zero_result_urls.append("データなし")
 
             except Exception as e_outer:
                 self.logger.error(f"URL ({target_url}) の処理中にエラー: {e_outer} - {program_name}", exc_info=True)
@@ -622,7 +648,7 @@ class TVTokyoScraper(BaseScraper):
         # 重複を除去して返す
         unique_urls = sorted(list(set(all_urls)))
         self.logger.debug(f"最終的に抽出されたユニークなエピソードURL: {program_name} - {unique_urls}")
-        return unique_urls, error_count
+        return unique_urls, error_count, zero_result_urls
 
     def _validate_program_url(self, url: str, program_name: str) -> bool:
         """URLが番組のバリデーションルールを満たしているかチェック"""
@@ -990,32 +1016,47 @@ def _process_fetch_result(fetch_result: FetchResult, results_list: list[str], lo
             results_list.append(data_or_message)
             result_count = 1
         
-        progress_message = f"{program_name} 完了 ({result_count}件"
+        progress_message = f"完了 ({result_count}件"
         if error_info:
             progress_message += f", {error_info.strip(' ()')}"
         progress_message += ")"
         if result_count == 0 and not error_info:
-            progress_message = f"{program_name} 完了 (データなし)"
+            progress_message = f"完了 (データなし)"
             
     elif status == ScrapeStatus.NOT_FOUND:
         # data_or_message にエラー情報が含まれている可能性がある
         reason = data_or_message if isinstance(data_or_message, str) else "対象なし"
-        progress_message = f"{program_name} {reason}"
+        progress_message = f"{reason}"
         
     elif status == ScrapeStatus.FAILURE:
         failure_reason = data_or_message if isinstance(data_or_message, str) else "詳細不明"
         max_len = 60
         if len(failure_reason) > max_len:
             failure_reason = failure_reason[:max_len] + "..."
-        progress_message = f"{program_name} 失敗: {failure_reason}"
-    elif status == ScrapeStatus.NOT_FOUND:
-        reason = data_or_message if isinstance(data_or_message, str) else "詳細不明"
-        progress_message = f"{program_name} 対象なし: {reason}" # メッセージを調整
+        progress_message = f"失敗: {failure_reason}"
     else:
-        progress_message = f"{program_name} 未知の状態 ({status.name})"
+        progress_message = f"未知の状態 ({status.name})"
         logger.warning(f"不明なステータスを受け取りました: {fetch_result}")
 
-    return progress_message
+    return program_name, progress_message
+
+import unicodedata
+def _calc_display_width(text: str) -> int:
+    """全角・半角を考慮して文字列の表示幅を計算。"""
+    width = 0
+    for char in text:
+        if unicodedata.east_asian_width(char) in 'FWA':
+            width += 2
+        else:
+            width += 1
+    return width
+
+def _pad_to_width(text: str, target_width: int) -> str:
+    """表示幅に基づいて文字列をパディング。"""
+    current_width = _calc_display_width(text)
+    if current_width >= target_width:
+        return text
+    return text + " " * (target_width - current_width)
 
 def main():
     """メイン関数"""
@@ -1059,20 +1100,44 @@ def main():
                 single_tasks.extend([('tvtokyo', name, nhk_programs or {}, tvtokyo_programs, target_date) for name in tvtokyo_programs.keys()])
                 
             global_logger.info(f"並列処理を開始します ({total_tasks} タスク, {num_workers} ワーカー)")
+
+            # 列幅を全番組名の最大表示幅から動的に計算（＋マージン 2）
+            name_col_width = max(
+                (_calc_display_width(n) for n in all_task_names), default=20
+            ) + 2
+            num_width = len(str(total_tasks))  # 番号の桁数
+
+            # ヘッダー行フォーマット
+            task_col_width = num_width * 2 + 1
+            header_task = _pad_to_width("進捗", task_col_width)
+            header_name = _pad_to_width("番組名", name_col_width)
+            header_status = _pad_to_width("ステータス", 35) # ステータス列の幅を35に固定
+            header_str = f"{header_task}  {header_name}  {header_status}  経過時間"
+            separator = "-" * _calc_display_width(header_str)
             
+            is_header_printed = False
+
             # initializerを使ってワーカープロセス起動時に1度だけWebDriverを初期化・常駐させる
             pool = multiprocessing.Pool(processes=num_workers, initializer=init_worker)
             try:
                 # imap_unordered は単発タスクの結果を即座に返す（バッチ完了を待つ必要がない）
                 for fetch_result in pool.imap_unordered(fetch_single_program, single_tasks):
+                    if not is_header_printed:
+                        print(f"\n{header_str}")
+                        print(separator)
+                        is_header_printed = True
+
                     processed_tasks += 1
                     elapsed_time = get_elapsed_time(start_time)
 
                     # ヘルパー関数で結果処理とメッセージ生成
-                    progress_message = _process_fetch_result(fetch_result, results, global_logger)
+                    prog_name, status_text = _process_fetch_result(fetch_result, results, global_logger)
 
-                    # 進捗表示
-                    print(f"\n進捗: {processed_tasks}/{total_tasks} ({progress_message}) （経過時間：{elapsed_time:.0f}秒）", end="", flush=True)
+                    # 進捗表示（列揃えフォーマット）
+                    task_str = f"{processed_tasks:>{num_width}}/{total_tasks}"
+                    name_col = _pad_to_width(prog_name, name_col_width)
+                    status_col = _pad_to_width(status_text, 35)
+                    print(f"{task_str}  {name_col}  {status_col}  {elapsed_time:>3.0f}秒", flush=True)
 
             except KeyboardInterrupt:
                 global_logger.warning("\nユーザーによって処理が中断されました。プロセスを終了しています...")
