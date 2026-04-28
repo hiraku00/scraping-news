@@ -98,7 +98,7 @@ class EpisodeProcessor:
                     self.logger.debug(f"エピソードタイトルを抽出しました: {program_title} - {episode_title}")
                     return episode_title
             except NoSuchElementException:
-                self.logger.warning(f"エピソードタイトルの取得に失敗しました: {program_title}")
+                self.logger.info(f"一覧ページからのタイトル取得をスキップ（詳細ページで取得を試みます）: {program_title}")
                 return None
 
         return None
