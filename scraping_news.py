@@ -1061,6 +1061,7 @@ def _pad_to_width(text: str, target_width: int) -> str:
 def main():
     """メイン関数"""
     # --- Logger Setup ---
+    # --- Logger Setup ---
     global_logger = setup_logger(level=logging.INFO)
     # global_logger = setup_logger(level=logging.DEBUG)
     # ---------------------
