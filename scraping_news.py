@@ -153,7 +153,7 @@ class NHKScraper(BaseScraper):
 
         return None
 
-    def _extract_time_from_json_ld(self, driver) -> Optional[str]:
+    def _extract_time_from_json_ld(self, driver, program_title: str) -> Optional[str]:
         """エピソード詳細ページのJSON-LDから放送時間を抽出する。
 
         複数の放送時間が存在する場合、メイン放送（通常は最初の放送）を優先して返す。
@@ -209,7 +209,7 @@ class NHKScraper(BaseScraper):
                     continue
 
             if not all_broadcast_times:
-                self.logger.warning("JSON-LD内に放送時間情報が見つかりませんでした。")
+                self.logger.warning(f"[{program_title}] JSON-LD内に放送時間情報が見つかりませんでした。")
                 return None
 
             # 放送時間でソート（最も早い時間が最初に来るように）
@@ -227,7 +227,7 @@ class NHKScraper(BaseScraper):
             self.logger.debug(f"JSON-LDのscriptタグが見つかりませんでした: {e}")
             return None
         except Exception as e:
-            self.logger.error(f"放送時間の抽出中にエラーが発生しました: {e}", exc_info=True)
+            self.logger.error(f"[{program_title}] 放送時間の抽出中にエラーが発生しました: {e}", exc_info=True)
             return None
 
     @BaseScraper.handle_selenium_error
@@ -247,7 +247,7 @@ class NHKScraper(BaseScraper):
         nhk_plus_url = self._extract_nhk_plus_url(driver)
 
         #【修正】時間取得処理を _process_eyecatch_or_iframe の外に移動し、一元化
-        time_str = self._extract_time_from_json_ld(driver)
+        time_str = self._extract_time_from_json_ld(driver, program_title)
         if time_str:
             program_time = f"({channel} {time_str})"
         else:
@@ -599,7 +599,7 @@ class TVTokyoScraper(BaseScraper):
                                 continue
 
                         except Exception as e:
-                            self.logger.error(f"日付マッチング中にエラーが発生しました: {e}")
+                            self.logger.error(f"[{program_name}] 日付マッチング中にエラーが発生しました: {e}")
 
                         if is_matching_date:
                             try:
@@ -618,7 +618,7 @@ class TVTokyoScraper(BaseScraper):
                                     urls_found_on_page.append(link)
                                     break  # 同一アイテムで1本取れれば十分
                             except Exception as e:
-                                self.logger.error(f"リンク抽出中にエラーが発生しました: {e}")
+                                self.logger.error(f"[{program_name}] リンク抽出中にエラーが発生しました: {e}")
 
                     except Exception as e_inner:
                         self.logger.error(f"エピソード解析中に予期せぬエラー: {e_inner} - {program_name} - {target_url}", exc_info=True)
@@ -701,7 +701,7 @@ class TVTokyoScraper(BaseScraper):
         """テレビ東京のエピソード詳細情報を取得する"""
         # URLの形式をバリデーション
         if not self._validate_program_url(episode_url, program_name):
-            self.logger.warning(f"無効なURLのためスキップ: {episode_url}")
+            self.logger.warning(f"[{program_name}] 無効なURLのためスキップ: {episode_url}")
             return None, None
             
         # ガイアの夜明けの場合は特別な処理を行う
@@ -772,7 +772,7 @@ class TVTokyoScraper(BaseScraper):
                 # どうしても取得できない場合はデフォルトのタイトルを返す
                 return f"{program_name}の番組情報", episode_url
             except Exception as e:
-                self.logger.error(f"ガイアの夜明けのタイトル取得中にエラーが発生しました: {e}")
+                self.logger.error(f"[{program_name}] ガイアの夜明けのタイトル取得中にエラーが発生しました: {e}")
                 # エラーが発生した場合はデフォルトのタイトルを返す
                 return f"{program_name}の番組情報", episode_url
             
@@ -836,11 +836,11 @@ class TVTokyoScraper(BaseScraper):
                     continue
             
             # タイトルが見つからなかった場合
-            self.logger.warning(f"タイトルが見つかりませんでした: {episode_url}")
+            self.logger.warning(f"[{program_name}] タイトルが見つかりませんでした: {episode_url}")
             return f"{program_name}の番組情報", episode_url
             
         except Exception as e:
-            self.logger.error(f"エピソード詳細の取得中にエラーが発生しました: {e}")
+            self.logger.error(f"[{program_name}] エピソード詳細の取得中にエラーが発生しました: {e}")
             return None, None
 
 # --- 関数定義 ---
