@@ -37,7 +37,7 @@ class Constants:
         SHORT_TIMEOUT = 5 # 短めのタイムアウトを追加 (必要に応じて調整)
         PAGE_LOAD_TIMEOUT = 60  # ページ全体の読み込みタイムアウト（秒）
         TVTOKYO_ELEMENT_TIMEOUT = 10  # TV東京の要素待機タイムアウト（秒）
-        NHK_ELEMENT_TIMEOUT = 5  # NHKの要素待機タイムアウト（秒）
+        NHK_ELEMENT_TIMEOUT = 10  # NHKの要素待機タイムアウト（秒）
 
     class Program:
         """番組関連の定数"""

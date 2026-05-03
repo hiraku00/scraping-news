@@ -107,8 +107,8 @@ class NHKScraper(BaseScraper):
         processed_episodes_count = 0
         
         for retry in range(max_scroll_retries + 1):
-            # 空番組での長期待機（ボトルネック）を避けるため、要素出現待機は5秒に短縮する
-            episodes = self.episode_processor.find_episode_elements(driver, program_title, timeout=5)
+            # 空番組での長期待機（ボトルネック）を避けるため、要素出現待機時間を定数から取得
+            episodes = self.episode_processor.find_episode_elements(driver, program_title, timeout=Constants.Time.NHK_ELEMENT_TIMEOUT)
             if not episodes:
                 if retry == 0:
                     self.logger.info(f"[{program_title}] 初回描画でエピソードリストが空です。対象エピソードなしと判断します。")
@@ -858,6 +858,9 @@ def init_worker():
         manager = WebDriverManager()
         worker_driver = manager.__enter__()
         atexit.register(cleanup_worker)
+        
+        # ロガーを初期化
+        setup_logger(level=logging.INFO)
         
         import os
         print(f" [DEBUG] ワーカープロセスを初期化しました (PID: {os.getpid()})", flush=True)
