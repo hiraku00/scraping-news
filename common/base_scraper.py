@@ -147,17 +147,17 @@ class BaseScraper(ABC):
             try:
                 return operation(driver)
             except Exception as e:
-                # WebDriver 操作中のエラーはここでキャッチし、詳細をログに出力
-                self.logger.error(f"WebDriver操作中にエラーが発生しました: {e}", exc_info=True)
-                return None
+                # ログを簡潔にし、詳細は再スロー先に任せる
+                self.logger.error(f"[{self.__class__.__name__}] WebDriver操作中にエラー: {e}")
+                raise e
 
     def execute_with_existing_driver(self, driver, operation: Callable[[Any], T]) -> T | None:
         """外部から渡されたWebDriverを使用して操作を実行する（Chrome起動なし）"""
         try:
             return operation(driver)
         except Exception as e:
-            self.logger.error(f"WebDriver操作中にエラーが発生しました: {e}", exc_info=True)
-            return None
+            self.logger.error(f"[{self.__class__.__name__}] WebDriver操作中にエラー: {e}")
+            raise e
 
     def _format_program_output(self, program_title: str, program_time: str | None, episode_title: str, url_to_display: str) -> str:
         """番組情報の出力をフォーマットする共通関数"""
