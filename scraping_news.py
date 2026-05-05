@@ -49,7 +49,11 @@ class NHKScraper(BaseScraper):
         def scrape_operation(driver) -> ScrapeResult:
             return self._scrape_nhk_program(driver, program_name, target_date, program_info)
 
-        result = self.execute_with_driver(scrape_operation)
+        try:
+            result = self.execute_with_driver(scrape_operation)
+        except Exception as e:
+            self.logger.error(f"[{program_name}] 取得エラー: {type(e).__name__}")
+            return ScrapeStatus.FAILURE, f"エラー: {type(e).__name__}"
 
         if result is None:
             return ScrapeStatus.FAILURE, f"WebDriverエラーまたは内部エラー発生"
@@ -69,7 +73,11 @@ class NHKScraper(BaseScraper):
         def scrape_operation(driver) -> ScrapeResult:
             return self._scrape_nhk_program(driver, program_name, target_date, program_info)
 
-        result = self.execute_with_existing_driver(driver, scrape_operation)
+        try:
+            result = self.execute_with_existing_driver(driver, scrape_operation)
+        except Exception as e:
+            self.logger.error(f"[{program_name}] 取得エラー: {type(e).__name__}")
+            return ScrapeStatus.FAILURE, f"エラー: {type(e).__name__}"
 
         if result is None:
             return ScrapeStatus.FAILURE, f"WebDriverエラーまたは内部エラー発生"
@@ -92,7 +100,6 @@ class NHKScraper(BaseScraper):
         else:
             return ScrapeStatus.NOT_FOUND, "対象なし"
 
-    @BaseScraper.handle_selenium_error
     def _extract_nhk_episode_info(self, driver, target_date: str, program_title: str) -> str | None:
         """NHKのエピソード情報を抽出する"""
         program_info = self.config.get(program_title)
@@ -230,7 +237,6 @@ class NHKScraper(BaseScraper):
             self.logger.error(f"[{program_title}] 放送時間の抽出中にエラーが発生しました: {e}", exc_info=True)
             return None
 
-    @BaseScraper.handle_selenium_error
     def _get_nhk_formatted_episode_info(self, driver, program_title: str, episode_url: str, channel: str) -> str | None:
         """NHKのエピソード情報を整形する"""
         self.episode_processor.get_episode_detail_page(driver, episode_url)
@@ -367,7 +373,7 @@ class TVTokyoScraper(BaseScraper):
             with WebDriverManager() as driver:
                 return self._scrape_tvtokyo_program(driver, program_name, target_date)
         except Exception as e:
-            self.logger.error(f"番組情報取得中にエラー: {e} - {program_name}", exc_info=True)
+            self.logger.error(f"[{program_name}] 取得エラー: {type(e).__name__}")
             return ScrapeStatus.FAILURE, f"処理中にエラー: {e}"
 
     def get_program_info_with_driver(self, driver, program_name: str, target_date: str) -> ScrapeResult:
@@ -378,7 +384,7 @@ class TVTokyoScraper(BaseScraper):
         try:
             return self._scrape_tvtokyo_program(driver, program_name, target_date)
         except Exception as e:
-            self.logger.error(f"番組情報取得中にエラー: {e} - {program_name}", exc_info=True)
+            self.logger.error(f"[{program_name}] 取得エラー: {type(e).__name__}")
             return ScrapeStatus.FAILURE, f"処理中にエラー: {e}"
 
     def _scrape_tvtokyo_program(self, driver, program_name: str, target_date: str) -> ScrapeResult:
@@ -430,6 +436,10 @@ class TVTokyoScraper(BaseScraper):
             status_suffix = f" (スキップ: 取得失敗:{error_count}件)"
 
         if not episode_urls:
+            # すべてのURLでエラーが発生していた場合は失敗として返す
+            if error_count >= len(target_urls):
+                return ScrapeStatus.FAILURE, f"全URLで取得失敗: エラー {error_count}件"
+
             msg = "対象なし"
             # エラーや未取得があれば付与
             reasons = []
@@ -500,9 +510,10 @@ class TVTokyoScraper(BaseScraper):
             try:
                 try:
                     driver.get(target_url)
-                except TimeoutException as te:
+                except TimeoutException:
                     # ページ読み込みが長時間ブロックされる場合は早期にスキップ
-                    self.logger.warning(f"{program_name} のページ読み込みがタイムアウトしました: {target_url} - {te}")
+                    self.logger.warning(f"[{program_name}] ページ読み込みタイムアウト: {target_url}")
+                    error_count += 1
                     continue
                 # 対象番組の一覧コンテナが表示されるまで待機（TV東京のページは重いため長めに設定）
                 try:
